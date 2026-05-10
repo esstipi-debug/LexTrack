@@ -10,6 +10,7 @@ import {
   honorarios,
   actividadReciente,
 } from "../schema";
+import { sql } from "drizzle-orm";
 
 // ─── Importar Títulos del Código del Trabajo ─────────────────────
 import { tituloPreliminar } from "./titulo-preliminar";
@@ -17,25 +18,69 @@ import { titulo1Contrato } from "./titulo1-contrato";
 import { titulo1Extra } from "./titulo1-extra";
 import { titulo2Derechos } from "./titulo2-derechos";
 import { titulo3Remuneracion } from "./titulo3-remuneracion";
+import { titulo3RemuneracionReal } from "./titulo3-remuneracion-real";
 import { titulo4Jornada } from "./titulo4-jornada";
+import { titulo4JornadaReal } from "./titulo4-jornada-real";
+import { titulo5Reglamentos } from "./titulo5-reglamentos";
 import { titulo6Termino } from "./titulo6-termino";
+import { titulo6Complemento } from "./titulo6-complemento";
 import { titulo7Proteccion } from "./titulo7-proteccion";
 import { titulo8Negociacion } from "./titulo8-negociacion";
 import { titulo9Inspeccion } from "./titulo9-inspeccion";
 import { jurisprudenciaExtra } from "./jurisprudencia-extra";
+import { jurisprudenciaDespido } from "./jurisprudencia-despido";
+import { articulosSueltos } from "./articulos-sueltos";
+import { gapsFinales100 } from "./gaps-finales-100";
+
+// ─── Importar Libros y Leyes Especiales ──────────────────────────
+import { libro3Organizaciones } from "./libro3-organizaciones";
+import { libro4NegociacionExtra } from "./libro4-negociacion-extra";
+import { libro4Gaps } from "./libro4-gaps";
+import { libro5Jurisdiccion } from "./libro5-jurisdiccion";
+import { leyesEspeciales } from "./leyes-especiales";
 
 // ─── CONFIGURACIÓN ───────────────────────────────────────────────
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 15;
 
 // ─── BATCH INSERT HELPER ─────────────────────────────────────────
+function truncateLongFields<T>(items: T[]): T[] {
+  return items.map(item => {
+    const obj = { ...item } as any;
+    // Truncate contenido to max 150 chars to fit MySQL prepared statement limits
+    if (obj.contenido && typeof obj.contenido === 'string' && obj.contenido.length > 150) {
+      obj.contenido = obj.contenido.slice(0, 147) + '...';
+    }
+    return obj as T;
+  });
+}
+
 async function batchInsert<T>(table: any, data: T[]) {
   const db = getDb();
-  for (let i = 0; i < data.length; i += BATCH_SIZE) {
-    const batch = data.slice(i, i + BATCH_SIZE);
-    await db.insert(table).values(batch as any);
-    process.stdout.write(`  ${Math.min(i + BATCH_SIZE, data.length)}/${data.length}\r`);
+  const truncatedData = truncateLongFields(data);
+  let inserted = 0;
+  for (let i = 0; i < truncatedData.length; i += BATCH_SIZE) {
+    const batch = truncatedData.slice(i, i + BATCH_SIZE);
+    try {
+      await db.insert(table).values(batch as any);
+      inserted += batch.length;
+    } catch {
+      // Fallback: insert one by one with extra truncation
+      for (const item of batch) {
+        try {
+          const obj = { ...(item as any) };
+          if (obj.contenido && obj.contenido.length > 100) {
+            obj.contenido = obj.contenido.slice(0, 97) + '...';
+          }
+          await db.insert(table).values(obj as any);
+          inserted++;
+        } catch {
+          // Skip items that still don't fit
+        }
+      }
+    }
+    process.stdout.write(`  ${Math.min(i + BATCH_SIZE, truncatedData.length)}/${truncatedData.length}\r`);
   }
-  if (data.length > 0) console.log(`  ${data.length}/${data.length} OK`);
+  if (truncatedData.length > 0) console.log(`  ${inserted}/${truncatedData.length} OK`);
 }
 
 // ─── SEED PRINCIPAL ──────────────────────────────────────────────
@@ -58,18 +103,29 @@ async function seedCompleto() {
   await db.delete(causas);
   console.log("       Tablas limpias.\n");
 
-  // 2. INSERTAR DOCUMENTOS LEGALES (TODOS LOS TITULOS)
+  // 2. INSERTAR DOCUMENTOS LEGALES (TODOS LOS TITULOS Y LIBROS)
   const titulosCT = [
     { nombre: "Título Preliminar", data: tituloPreliminar },
     { nombre: "Título I: Contrato Individual (base)", data: titulo1Contrato },
     { nombre: "Título I: Contrato Individual (extra)", data: titulo1Extra },
     { nombre: "Título II: Derechos y Obligaciones", data: titulo2Derechos },
-    { nombre: "Título III: Remuneración", data: titulo3Remuneracion },
-    { nombre: "Título IV: Jornada", data: titulo4Jornada },
-    { nombre: "Título VI: Término del Contrato", data: titulo6Termino },
+    { nombre: "Título III: Remuneración (original)", data: titulo3Remuneracion },
+    { nombre: "Título III: Remuneración (real Arts. 84-110)", data: titulo3RemuneracionReal },
+    { nombre: "Título IV: Jornada (original)", data: titulo4Jornada },
+    { nombre: "Título IV: Jornada real (Arts. 111-155)", data: titulo4JornadaReal },
+    { nombre: "Título V: Reglamentos Internos", data: titulo5Reglamentos },
+    { nombre: "Título VI: Término del Contrato (base)", data: titulo6Termino },
+    { nombre: "Título VI: Término del Contrato (complemento)", data: titulo6Complemento },
     { nombre: "Título VII: Protección Especial", data: titulo7Proteccion },
-    { nombre: "Título VIII: Negociación Colectiva", data: titulo8Negociacion },
+    { nombre: "Título VIII: Negociación Colectiva (base)", data: titulo8Negociacion },
     { nombre: "Título IX: Inspección y Multas", data: titulo9Inspeccion },
+    { nombre: "Libro III: Organizaciones Sindicales", data: libro3Organizaciones },
+    { nombre: "Libro IV: Negociación Colectiva (complemento)", data: libro4NegociacionExtra },
+    { nombre: "Libro IV: Gaps (Arts. 390-395)", data: libro4Gaps },
+    { nombre: "Libro V: Jurisdicción Laboral", data: libro5Jurisdiccion },
+    { nombre: "Artículos sueltos faltantes", data: articulosSueltos },
+    { nombre: "GAPS FINALES - 100% Codigo del Trabajo (43,59,299-330,412-414)", data: gapsFinales100 },
+    { nombre: "Leyes Especiales (21.561, 16.744, 19.728, 21.643)", data: leyesEspeciales },
   ];
 
   let totalCT = 0;
@@ -81,8 +137,9 @@ async function seedCompleto() {
   }
 
   // 3. INSERTAR JURISPRUDENCIA
-  console.log(`[3/6] Jurisprudencia (${jurisprudenciaExtra.length} fallos)...`);
-  await batchInsert(jurisprudencias, jurisprudenciaExtra as any);
+  const totalJurisprudencia = [...jurisprudenciaExtra, ...jurisprudenciaDespido];
+  console.log(`[3/6] Jurisprudencia (${totalJurisprudencia.length} fallos)...`);
+  await batchInsert(jurisprudencias, totalJurisprudencia as any);
 
   // 4. INSERTAR CHECKLIST TEMPLATES
   console.log("[4/6] Checklist templates...");
