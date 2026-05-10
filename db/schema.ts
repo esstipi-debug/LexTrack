@@ -5,9 +5,15 @@ import {
   varchar,
   text,
   timestamp,
-  // bigint,
+  bigint,
+  int,
+  boolean,
+  json,
+  date,
+  index,
 } from "drizzle-orm/mysql-core";
 
+// ─── Users (OAuth) ───────────────────────────────────────────────
 export const users = mysqlTable("users", {
   id: serial("id").primaryKey(),
   unionId: varchar("unionId", { length: 255 }).notNull().unique(),
@@ -26,15 +32,797 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here. See docs/Database.md for schema examples and patterns.
-//
-// Example:
-// export const posts = mysqlTable("posts", {
-//   id: serial("id").primaryKey(),
-//   title: varchar("title", { length: 255 }).notNull(),
-//   content: text("content"),
-//   createdAt: timestamp("created_at").notNull().defaultNow(),
-// });
-//
-// Note: FK columns referencing a serial() PK must use:
-//   bigint("columnName", { mode: "number", unsigned: true }).notNull()
+// ─── Expedientes (Casos/Carpetas) ────────────────────────────────
+export const expedientes = mysqlTable(
+  "expedientes",
+  {
+    id: serial("id").primaryKey(),
+    codigo: varchar("codigo", { length: 50 }).notNull().unique(),
+    nombre: varchar("nombre", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    materia: mysqlEnum("materia", [
+      "laboral",
+      "civil",
+      "penal",
+      "cobranza",
+      "familia",
+      "comercial",
+      "administrativa",
+    ])
+      .default("laboral")
+      .notNull(),
+    estado: mysqlEnum("estado", [
+      "activo",
+      "archivado",
+      "concluido",
+      "pendiente",
+    ])
+      .default("activo")
+      .notNull(),
+    prioridad: mysqlEnum("prioridad", ["baja", "media", "alta", "critica"])
+      .default("media")
+      .notNull(),
+    cliente: varchar("cliente", { length: 255 }),
+    clienteRut: varchar("clienteRut", { length: 20 }),
+    abogadoAsignado: varchar("abogadoAsignado", { length: 255 }),
+    asistenteAsignado: varchar("asistenteAsignado", { length: 255 }),
+    tribunal: varchar("tribunal", { length: 255 }),
+    fechaInicio: date("fechaInicio"),
+    fechaEstimadaCierre: date("fechaEstimadaCierre"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    codigoIdx: index("codigo_idx").on(table.codigo),
+    materiaIdx: index("materia_idx").on(table.materia),
+    estadoIdx: index("estado_idx").on(table.estado),
+  })
+);
+
+export type Expediente = typeof expedientes.$inferSelect;
+export type InsertExpediente = typeof expedientes.$inferInsert;
+
+// ─── Causas ──────────────────────────────────────────────────────
+export const causas = mysqlTable(
+  "causas",
+  {
+    id: serial("id").primaryKey(),
+    rit: varchar("rit", { length: 50 }).notNull(),
+    ruc: varchar("ruc", { length: 50 }),
+    rol: varchar("rol", { length: 50 }),
+    caratula: varchar("caratula", { length: 500 }).notNull(),
+    tribunal: varchar("tribunal", { length: 255 }).notNull(),
+    comuna: varchar("comuna", { length: 100 }),
+    region: varchar("region", { length: 100 }),
+    materia: mysqlEnum("materia", [
+      "laboral",
+      "civil",
+      "penal",
+      "cobranza",
+      "familia",
+      "comercial",
+      "administrativa",
+    ])
+      .default("laboral")
+      .notNull(),
+    estado: mysqlEnum("estado", [
+      "tramitacion",
+      "notificacion",
+      "prueba",
+      "sentencia",
+      "ejecucion",
+      "concluida",
+      "archivada",
+    ])
+      .default("tramitacion")
+      .notNull(),
+    etapa: varchar("etapa", { length: 100 }),
+    fechaIngreso: date("fechaIngreso"),
+    fechaUltimoMovimiento: date("fechaUltimoMovimiento"),
+    litigantes: text("litigantes"),
+    abogadoDemandante: varchar("abogadoDemandante", { length: 255 }),
+    abogadoDemandado: varchar("abogadoDemandado", { length: 255 }),
+    expedienteId: bigint("expedienteId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    estaMonitoreando: boolean("estaMonitoreando").default(true).notNull(),
+    fuente: varchar("fuente", { length: 50 })
+      .default("consulta_unificada")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    ritIdx: index("rit_idx").on(table.rit),
+    rucIdx: index("ruc_idx").on(table.ruc),
+    materiaIdx: index("causa_materia_idx").on(table.materia),
+    estadoIdx: index("causa_estado_idx").on(table.estado),
+    expedienteIdx: index("expediente_idx").on(table.expedienteId),
+  })
+);
+
+export type Causa = typeof causas.$inferSelect;
+export type InsertCausa = typeof causas.$inferInsert;
+
+// ─── Alertas ─────────────────────────────────────────────────────
+export const alertas = mysqlTable(
+  "alertas",
+  {
+    id: serial("id").primaryKey(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    tipo: mysqlEnum("tipo", [
+      "cambio_estado",
+      "nuevo_movimiento",
+      "nueva_resolucion",
+      "prazo_proximo",
+      "audiencia_programada",
+      "notificacion_pendiente",
+      "cambio_normativo",
+      "diario_oficial",
+      "dt_dictamen",
+      "system",
+    ])
+      .default("nuevo_movimiento")
+      .notNull(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    prioridad: mysqlEnum("prioridad", ["baja", "media", "alta", "critica"])
+      .default("media")
+      .notNull(),
+    estado: mysqlEnum("estado", ["pendiente", "leida", "archivada"])
+      .default("pendiente")
+      .notNull(),
+    fechaEvento: date("fechaEvento"),
+    fechaVencimiento: date("fechaVencimiento"),
+    metadata: json("metadata"),
+    leidaAt: timestamp("leidaAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    causaIdx: index("alerta_causa_idx").on(table.causaId),
+    expedienteIdx: index("alerta_expediente_idx").on(table.expedienteId),
+    tipoIdx: index("tipo_idx").on(table.tipo),
+    estadoIdx: index("alerta_estado_idx").on(table.estado),
+    prioridadIdx: index("prioridad_idx").on(table.prioridad),
+  })
+);
+
+export type Alerta = typeof alertas.$inferSelect;
+export type InsertAlerta = typeof alertas.$inferInsert;
+
+// ─── Tareas ──────────────────────────────────────────────────────
+export const tareas = mysqlTable(
+  "tareas",
+  {
+    id: serial("id").primaryKey(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    asignadoA: varchar("asignadoA", { length: 255 }),
+    creadoPor: varchar("creadoPor", { length: 255 }),
+    tipo: mysqlEnum("tipo", [
+      "revision_documento",
+      "preparar_escrito",
+      "seguimiento_causa",
+      "revisar_resolucion",
+      "notificar_cliente",
+      "agendar_audiencia",
+      "investigar_norma",
+      "checklist_despido",
+      "checklist_finiquito",
+      "revisar_diario_oficial",
+      "otra",
+    ])
+      .default("otra")
+      .notNull(),
+    estado: mysqlEnum("estado", [
+      "pendiente",
+      "en_progreso",
+      "completada",
+      "cancelada",
+    ])
+      .default("pendiente")
+      .notNull(),
+    prioridad: mysqlEnum("prioridad", ["baja", "media", "alta", "critica"])
+      .default("media")
+      .notNull(),
+    fechaVencimiento: date("fechaVencimiento"),
+    fechaCompletada: timestamp("fechaCompletada"),
+    notas: text("notas"),
+    etiquetas: varchar("etiquetas", { length: 500 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    causaIdx: index("tarea_causa_idx").on(table.causaId),
+    expedienteIdx: index("tarea_expediente_idx").on(table.expedienteId),
+    estadoIdx: index("tarea_estado_idx").on(table.estado),
+    asignadoIdx: index("asignado_idx").on(table.asignadoA),
+    vencimientoIdx: index("vencimiento_idx").on(table.fechaVencimiento),
+  })
+);
+
+export type Tarea = typeof tareas.$inferSelect;
+export type InsertTarea = typeof tareas.$inferInsert;
+
+// ─── Documentos ──────────────────────────────────────────────────
+export const documentos = mysqlTable(
+  "documentos",
+  {
+    id: serial("id").primaryKey(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    tipo: mysqlEnum("tipo", [
+      "resolucion",
+      "sentencia",
+      "escrito",
+      "demanda",
+      "contestacion",
+      "finiquito",
+      "contrato",
+      "carta_aviso",
+      "dictamen",
+      "informe",
+      "nota",
+      "otro",
+    ])
+      .default("otro")
+      .notNull(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    contenido: text("contenido"),
+    url: text("url"),
+    numeroDocumento: varchar("numeroDocumento", { length: 100 }),
+    fechaDocumento: date("fechaDocumento"),
+    tribunalOrigen: varchar("tribunalOrigen", { length: 255 }),
+    esPublico: boolean("esPublico").default(true).notNull(),
+    fuente: varchar("fuente", { length: 100 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    causaIdx: index("doc_causa_idx").on(table.causaId),
+    expedienteIdx: index("doc_expediente_idx").on(table.expedienteId),
+    tipoIdx: index("doc_tipo_idx").on(table.tipo),
+  })
+);
+
+export type Documento = typeof documentos.$inferSelect;
+export type InsertDocumento = typeof documentos.$inferInsert;
+
+// ─── Cronologia ──────────────────────────────────────────────────
+export const cronologia = mysqlTable(
+  "cronologia",
+  {
+    id: serial("id").primaryKey(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    fecha: date("fecha").notNull(),
+    hora: varchar("hora", { length: 10 }),
+    tipo: mysqlEnum("tipo", [
+      "ingreso",
+      "audiencia",
+      "resolucion",
+      "notificacion",
+      "tramite",
+      "prueba",
+      "sentencia",
+      "apelacion",
+      "cambio_estado",
+      "escrito_presentado",
+      "otro",
+    ])
+      .default("otro")
+      .notNull(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    actor: varchar("actor", { length: 255 }),
+    documentoId: bigint("documentoId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    fuente: varchar("fuente", { length: 100 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    causaIdx: index("cron_causa_idx").on(table.causaId),
+    expedienteIdx: index("cron_expediente_idx").on(table.expedienteId),
+    fechaIdx: index("fecha_idx").on(table.fecha),
+  })
+);
+
+export type CronologiaItem = typeof cronologia.$inferSelect;
+export type InsertCronologiaItem = typeof cronologia.$inferInsert;
+
+// ─── Notas ───────────────────────────────────────────────────────
+export const notas = mysqlTable(
+  "notas",
+  {
+    id: serial("id").primaryKey(),
+    contenido: text("contenido").notNull(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    autor: varchar("autor", { length: 255 }),
+    tipo: mysqlEnum("tipo", [
+      "general",
+      "estrategia",
+      "cliente",
+      "procesal",
+      "evidencia",
+    ])
+      .default("general")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    causaIdx: index("nota_causa_idx").on(table.causaId),
+    expedienteIdx: index("nota_expediente_idx").on(table.expedienteId),
+  })
+);
+
+export type Nota = typeof notas.$inferSelect;
+export type InsertNota = typeof notas.$inferInsert;
+
+// ─── Checklist Templates ─────────────────────────────────────────
+export const checklistTemplates = mysqlTable(
+  "checklist_templates",
+  {
+    id: serial("id").primaryKey(),
+    nombre: varchar("nombre", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    tipo: mysqlEnum("tipo", [
+      "despido_procedente",
+      "despido_injustificado",
+      "finiquito",
+      "reclamacion_indemnizacion",
+      "reclamacion_cotizaciones",
+      "carta_aviso_despido",
+      "accidente_laboral",
+      "proteccion_derechos",
+      "despido_colectivo",
+      "consulta_dt",
+    ])
+      .default("despido_procedente")
+      .notNull(),
+    materia: mysqlEnum("materia", ["laboral", "civil", "penal", "cobranza"])
+      .default("laboral")
+      .notNull(),
+    articulos: varchar("articulos", { length: 500 }),
+    leychileUrl: varchar("leychileUrl", { length: 500 }),
+    estaActiva: boolean("estaActiva").default(true).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    tipoIdx: index("ct_tipo_idx").on(table.tipo),
+  })
+);
+
+export type ChecklistTemplate = typeof checklistTemplates.$inferSelect;
+
+export const checklistItems = mysqlTable(
+  "checklist_items",
+  {
+    id: serial("id").primaryKey(),
+    templateId: bigint("templateId", { mode: "number", unsigned: true }).notNull(),
+    orden: int("orden").notNull(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    articuloLegal: varchar("articuloLegal", { length: 100 }),
+    esObligatorio: boolean("esObligatorio").default(true).notNull(),
+    categoria: mysqlEnum("categoria", [
+      "documento",
+      "tramite",
+      "notificacion",
+      "plazo",
+      "verificacion",
+      "pago",
+      "consulta",
+      "otro",
+    ])
+      .default("otro")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    templateIdx: index("ci_template_idx").on(table.templateId),
+  })
+);
+
+export type ChecklistItem = typeof checklistItems.$inferSelect;
+
+export const checklistEjecuciones = mysqlTable(
+  "checklist_ejecuciones",
+  {
+    id: serial("id").primaryKey(),
+    templateId: bigint("templateId", { mode: "number", unsigned: true }).notNull(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", { mode: "number", unsigned: true }),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    estado: mysqlEnum("estado", ["pendiente", "en_progreso", "completado"])
+      .default("pendiente")
+      .notNull(),
+    progreso: int("progreso").default(0).notNull(),
+    creadoPor: varchar("creadoPor", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    templateIdx: index("ce_template_idx").on(table.templateId),
+    causaIdx: index("ce_causa_idx").on(table.causaId),
+  })
+);
+
+export type ChecklistEjecucion = typeof checklistEjecuciones.$inferSelect;
+
+export const checklistCompletados = mysqlTable(
+  "checklist_completados",
+  {
+    id: serial("id").primaryKey(),
+    ejecucionId: bigint("ejecucionId", { mode: "number", unsigned: true }).notNull(),
+    itemId: bigint("itemId", { mode: "number", unsigned: true }).notNull(),
+    completado: boolean("completado").default(false).notNull(),
+    notas: text("notas"),
+    completadoPor: varchar("completadoPor", { length: 255 }),
+    completadoAt: timestamp("completadoAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    ejecIdx: index("cc_ejec_idx").on(table.ejecucionId),
+  })
+);
+
+export type ChecklistCompletado = typeof checklistCompletados.$inferSelect;
+
+// ─── Consultas Programadas ──────────────────────────────────────
+export const consultasProgramadas = mysqlTable(
+  "consultas_programadas",
+  {
+    id: serial("id").primaryKey(),
+    nombre: varchar("nombre", { length: 255 }).notNull(),
+    fuente: mysqlEnum("fuente", [
+      "pjud_causas",
+      "pjud_sentencias",
+      "diario_oficial",
+      "dt_dictamenes",
+      "leychile",
+    ])
+      .default("pjud_causas")
+      .notNull(),
+    parametros: text("parametros").notNull(),
+    frecuencia: mysqlEnum("frecuencia", ["cada_4_horas", "diaria", "semanal"])
+      .default("diaria")
+      .notNull(),
+    estaActiva: boolean("estaActiva").default(true).notNull(),
+    ultimaEjecucion: timestamp("ultimaEjecucion"),
+    proximaEjecucion: timestamp("proximaEjecucion"),
+    ultimoResultado: text("ultimoResultado"),
+    alertaEmail: boolean("alertaEmail").default(true).notNull(),
+    creadoPor: varchar("creadoPor", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    fuenteIdx: index("cp_fuente_idx").on(table.fuente),
+    activaIdx: index("cp_activa_idx").on(table.estaActiva),
+  })
+);
+
+export type ConsultaProgramada = typeof consultasProgramadas.$inferSelect;
+
+// ─── Actividad Reciente ─────────────────────────────────────────
+export const actividadReciente = mysqlTable(
+  "actividad_reciente",
+  {
+    id: serial("id").primaryKey(),
+    tipo: mysqlEnum("tipo", [
+      "causa_creada",
+      "causa_actualizada",
+      "alerta_nueva",
+      "alerta_leida",
+      "tarea_creada",
+      "tarea_completada",
+      "tarea_vencida",
+      "documento_agregado",
+      "cronologia_nuevo",
+      "checklist_completado",
+      "consulta_ejecutada",
+    ])
+      .default("causa_creada")
+      .notNull(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    descripcion: text("descripcion"),
+    referenciaId: bigint("referenciaId", {
+      mode: "number",
+      unsigned: true,
+    }),
+    referenciaTipo: varchar("referenciaTipo", { length: 50 }),
+    actor: varchar("actor", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    tipoIdx: index("ar_tipo_idx").on(table.tipo),
+    createdIdx: index("ar_created_idx").on(table.createdAt),
+  })
+);
+
+export type ActividadReciente = typeof actividadReciente.$inferSelect;
+
+// ─── Documentos Legales (para RAG) ──────────────────────────────
+export const documentosLegales = mysqlTable(
+  "documentos_legales",
+  {
+    id: serial("id").primaryKey(),
+    titulo: varchar("titulo", { length: 500 }).notNull(),
+    contenido: text("contenido").notNull(),
+    tipo: mysqlEnum("tipo", ["articulo", "ley", "decreto", "jurisprudencia", "doctrina"])
+      .default("articulo")
+      .notNull(),
+    norma: varchar("norma", { length: 255 }),
+    articulo: varchar("articulo", { length: 100 }),
+    url: varchar("url", { length: 500 }),
+    etiquetas: varchar("etiquetas", { length: 500 }),
+    categoria: mysqlEnum("categoria", ["laboral", "civil", "penal", "procesal", "constitucional"])
+      .default("laboral")
+      .notNull(),
+    embedding: text("embedding"),
+    estaActiva: boolean("estaActiva").default(true).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  }
+);
+
+export type DocumentoLegal = typeof documentosLegales.$inferSelect;
+
+// ─── Conversaciones RAG ─────────────────────────────────────────
+export const conversacionesRag = mysqlTable(
+  "conversaciones_rag",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: varchar("sessionId", { length: 100 }).notNull(),
+    role: mysqlEnum("role", ["user", "assistant", "system"])
+      .default("user")
+      .notNull(),
+    content: text("content").notNull(),
+    contexto: text("contexto"),
+    fuentes: text("fuentes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  }
+);
+
+export type ConversacionRag = typeof conversacionesRag.$inferSelect;
+
+// ─── Prompts Escritos ───────────────────────────────────────────
+export const promptsEscritos = mysqlTable(
+  "prompts_escritos",
+  {
+    id: serial("id").primaryKey(),
+    titulo: varchar("titulo", { length: 255 }).notNull(),
+    tipo: mysqlEnum("tipo", ["demanda", "contestacion", "recurso", "escrito", "carta", "memorial"])
+      .default("escrito")
+      .notNull(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", { mode: "number", unsigned: true }),
+    prompt: text("prompt").notNull(),
+    respuesta: text("respuesta"),
+    contexto: text("contexto"),
+    fuentes: text("fuentes"),
+    estado: mysqlEnum("estado", ["pendiente", "generado", "revisado"])
+      .default("pendiente")
+      .notNull(),
+    creadoPor: varchar("creadoPor", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  }
+);
+
+export type PromptEscrito = typeof promptsEscritos.$inferSelect;
+
+// ─── Jurisprudencia (Fallos/Sentencias para RAG) ──────────────────
+export const jurisprudencias = mysqlTable(
+  "jurisprudencias",
+  {
+    id: serial("id").primaryKey(),
+    rit: varchar("rit", { length: 50 }),
+    ruc: varchar("ruc", { length: 50 }),
+    caratula: varchar("caratula", { length: 500 }),
+    tribunal: varchar("tribunal", { length: 255 }),
+    tipo: mysqlEnum("tipo", ["sentencia", "resolucion", "auto", "acordada", "fallo"])
+      .default("sentencia")
+      .notNull(),
+    materia: mysqlEnum("materia", ["laboral", "civil", "penal", "cobranza", "familia", "comercial", "administrativa"])
+      .default("laboral")
+      .notNull(),
+    contenido: text("contenido").notNull(),
+    extracto: text("extracto"),
+    fallo: text("fallo"),
+    fundamento: text("fundamento"),
+    normasAplicadas: varchar("normasAplicadas", { length: 500 }),
+    votacion: varchar("votacion", { length: 50 }),
+    fechaSentencia: date("fechaSentencia"),
+    fechaPublicacion: date("fechaPublicacion"),
+    urlFuente: varchar("urlFuente", { length: 500 }),
+    urlDescarga: varchar("urlDescarga", { length: 500 }),
+    estaActiva: boolean("estaActiva").default(true).notNull(),
+    embeddings: text("embeddings"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    ritIdx: index("juris_rit_idx").on(table.rit),
+    tipoIdx: index("juris_tipo_idx").on(table.tipo),
+    materiaIdx: index("juris_materia_idx").on(table.materia),
+    fechaIdx: index("juris_fecha_idx").on(table.fechaSentencia),
+  })
+);
+
+export type Jurisprudencia = typeof jurisprudencias.$inferSelect;
+export type InsertJurisprudencia = typeof jurisprudencias.$inferInsert;
+
+// ─── Ley Karin (Denuncias de Acoso Laboral) ──────────────────────
+export const leykarinDenuncias = mysqlTable(
+  "leykarin_denuncias",
+  {
+    id: serial("id").primaryKey(),
+    codigo: varchar("codigo", { length: 50 }).notNull().unique(),
+    fechaRecepcion: date("fechaRecepcion").notNull(),
+    fechaHechos: date("fechaHechos"),
+    tipo: mysqlEnum("tipo", ["acoso_laboral", "acoso_sexual", "violencia_laboral", "discriminacion", "otro"])
+      .default("acoso_laboral")
+      .notNull(),
+    modo: mysqlEnum("modo", ["presencial", "escrito", "correo", "telefono", "anonimo"])
+      .default("presencial")
+      .notNull(),
+    denunciante: varchar("denunciante", { length: 255 }),
+    denunciado: varchar("denunciado", { length: 255 }).notNull(),
+    rutDenunciante: varchar("rutDenunciante", { length: 20 }),
+    rutDenunciado: varchar("rutDenunciado", { length: 20 }),
+    area: varchar("area", { length: 100 }),
+    cargoDenunciante: varchar("cargoDenunciante", { length: 100 }),
+    cargoDenunciado: varchar("cargoDenunciado", { length: 100 }),
+    descripcionHechos: text("descripcionHechos").notNull(),
+    testigos: text("testigos"),
+    evidencia: text("evidencia"),
+    estado: mysqlEnum("estado", ["recepcionada", "evaluacion", "investigacion", "remitida_dt", "archivada", "concluida"])
+      .default("recepcionada")
+      .notNull(),
+    prioridad: mysqlEnum("prioridad", ["baja", "media", "alta", "critica"])
+      .default("media")
+      .notNull(),
+    investigador: varchar("investigador", { length: 255 }),
+    fechaInicioInvestigacion: date("fechaInicioInvestigacion"),
+    fechaPlazo: date("fechaPlazo"),
+    fechaResolucion: date("fechaResolucion"),
+    diasPlazo: int("diasPlazo").default(30),
+    medidasCautelares: text("medidasCautelares"),
+    medidasDefinitivas: text("medidasDefinitivas"),
+    resolucion: text("resolucion"),
+    accionesTomadas: text("accionesTomadas"),
+    anonimizada: boolean("anonimizada").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    codigoIdx: index("lk_codigo_idx").on(table.codigo),
+    estadoIdx: index("lk_estado_idx").on(table.estado),
+    prioridadIdx: index("lk_prioridad_idx").on(table.prioridad),
+    denunciadoIdx: index("lk_denunciado_idx").on(table.denunciado),
+  })
+);
+
+export type LeykarinDenuncia = typeof leykarinDenuncias.$inferSelect;
+export type InsertLeykarinDenuncia = typeof leykarinDenuncias.$inferInsert;
+
+// ─── Ley Karin Timeline / Actuaciones ────────────────────────────
+export const leykarinActuaciones = mysqlTable(
+  "leykarin_actuaciones",
+  {
+    id: serial("id").primaryKey(),
+    denunciaId: bigint("denunciaId", { mode: "number", unsigned: true }).notNull(),
+    fecha: date("fecha").notNull(),
+    tipo: mysqlEnum("tipo", ["recepcion", "evaluacion", "entrevista", "investigacion", "evidencia", "remision_dt", "archivo", "resolucion", "apelacion"])
+      .default("recepcion")
+      .notNull(),
+    descripcion: text("descripcion").notNull(),
+    actor: varchar("actor", { length: 255 }),
+    documento: text("documento"),
+    horaInicio: varchar("horaInicio", { length: 10 }),
+    horaFin: varchar("horaFin", { length: 10 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    denunciaIdx: index("lkact_denuncia_idx").on(table.denunciaId),
+  })
+);
+
+export type LeykarinActuacion = typeof leykarinActuaciones.$inferSelect;
+
+// ─── Honorarios y Cobranza ───────────────────────────────────────
+export const honorarios = mysqlTable(
+  "honorarios",
+  {
+    id: serial("id").primaryKey(),
+    causaId: bigint("causaId", { mode: "number", unsigned: true }),
+    expedienteId: bigint("expedienteId", { mode: "number", unsigned: true }),
+    cliente: varchar("cliente", { length: 255 }).notNull(),
+    concepto: varchar("concepto", { length: 255 }).notNull(),
+    tipo: mysqlEnum("tipo", ["honorario", "gasto", "tasa", "consulta", "retencion"])
+      .default("honorario")
+      .notNull(),
+    monto: int("monto").notNull(),
+    montoPagado: int("montoPagado").default(0).notNull(),
+    moneda: varchar("moneda", { length: 10 }).default("CLP").notNull(),
+    estado: mysqlEnum("estado", ["pendiente", "pagado_parcial", "pagado", "vencido", "cobranza", "moroso"])
+      .default("pendiente")
+      .notNull(),
+    formaPago: mysqlEnum("formaPago", ["efectivo", "transferencia", "cheque", "debito", "credito", "cuota"]),
+    numCuotas: int("numCuotas").default(1),
+    cuotaActual: int("cuotaActual").default(0),
+    fechaVencimiento: date("fechaVencimiento"),
+    fechaPago: date("fechaPago"),
+    facturado: boolean("facturado").default(false).notNull(),
+    numeroFactura: varchar("numeroFactura", { length: 50 }),
+    observaciones: text("observaciones"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    causaIdx: index("hon_causa_idx").on(table.causaId),
+    estadoIdx: index("hon_estado_idx").on(table.estado),
+    vencimientoIdx: index("hon_vencimiento_idx").on(table.fechaVencimiento),
+  })
+);
+
+export type Honorario = typeof honorarios.$inferSelect;
+export type InsertHonorario = typeof honorarios.$inferInsert;
+
+// ─── Diario Oficial (Normas Publicadas) ──────────────────────────
+export const diarioOficialNormas = mysqlTable(
+  "diario_oficial_normas",
+  {
+    id: serial("id").primaryKey(),
+    numeroDO: varchar("numeroDO", { length: 50 }),
+    fechaPublicacion: date("fechaPublicacion").notNull(),
+    tipo: mysqlEnum("tipo", ["ley", "decreto", "resolucion", "circular", "instruccion", "acuerdo", "convenio"])
+      .default("ley")
+      .notNull(),
+    organismo: varchar("organismo", { length: 255 }).notNull(),
+    titulo: varchar("titulo", { length: 500 }).notNull(),
+    extracto: text("extracto"),
+    materia: mysqlEnum("materia", ["laboral", "civil", "penal", "tributaria", "administrativa", "ambiental", "otra"])
+      .default("laboral")
+      .notNull(),
+    urlOriginal: varchar("urlOriginal", { length: 500 }),
+    numeroNorma: varchar("numeroNorma", { length: 100 }),
+    anoNorma: int("anoNorma"),
+    vigente: boolean("vigente").default(true).notNull(),
+    articulosRelevantes: text("articulosRelevantes"),
+    alertaGenerada: boolean("alertaGenerada").default(false).notNull(),
+    procesadoRag: boolean("procesadoRag").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    fechaIdx: index("do_fecha_idx").on(table.fechaPublicacion),
+    materiaIdx: index("do_materia_idx").on(table.materia),
+    tipoIdx: index("do_tipo_idx").on(table.tipo),
+  })
+);
+
+export type DiarioOficialNorma = typeof diarioOficialNormas.$inferSelect;
+export type InsertDiarioOficialNorma = typeof diarioOficialNormas.$inferInsert;
