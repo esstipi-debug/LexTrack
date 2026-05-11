@@ -1,73 +1,45 @@
-# React + TypeScript + Vite
+# LexTrack
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> Asistente IA para abogados laboralistas chilenos.
+> No es ChatGPT legal. Es el sistema operativo del estudio laboral.
 
-Currently, two official plugins are available:
+**Estado:** en desarrollo activo. RAG base con 195 artículos del Código del Trabajo + leyes especiales + jurisprudencia ya seedeados. Migrando a arquitectura RAG híbrida (BM25 + embeddings + reranker + LLM con verificación de citas).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Qué hace
 
-## React Compiler
+Cuatro herramientas, sin chat libre:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. **Preguntar** — RAG con citas verificadas sobre Código del Trabajo, leyes especiales, jurisprudencia y dictámenes de la Dirección del Trabajo.
+2. **Calcular** — Indemnización, finiquito, horas extra, feriado proporcional, gratificación. Matemática local, gratis e ilimitado.
+3. **Escribir** — Generadores estructurados: carta de despido, demanda, finiquito, contestación.
+4. **Avisar** — Email diario con cambios del Diario Oficial filtrados por materia laboral.
 
-## Expanding the ESLint configuration
+**Feature punta de lanza:** wizard de Ley Karin (Ley 21.643).
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Pricing
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+| Plan | Precio/mes | Para quién |
+|---|---|---|
+| **Solo** | CLP 59.000 | Abogado independiente |
+| **Estudio** | CLP 189.000 | 3-5 abogados |
+| **Firma** | CLP 449.000 | 6-15 abogados |
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Anclaje: *"59 lucas al mes. 7 horas más a la semana. El asistente que tu estudio no tiene."*
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Documentación
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- 📋 [Estrategia de producto](docs/STRATEGY.md) — quién es el cliente, qué hace, qué no hace, pricing, moat.
+- 🏛 [Arquitectura técnica](docs/ARCHITECTURE.md) — RAG híbrido, scraping centralizado, stack, costos.
+- 🗺 [Roadmap MVP 6 semanas](docs/ROADMAP.md) — plan ejecutable.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Stack
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- **Frontend:** React 19 + Vite + Tailwind + shadcn/ui
+- **Backend:** Hono + tRPC + Drizzle
+- **DB:** Postgres 16 + pgvector (migrando desde MySQL)
+- **IA:** Anthropic Claude Sonnet 4.6 + Voyage `voyage-law-2` + Cohere rerank
+- **Infra:** S3, Stripe + dLocal, Resend, PostHog
+
+## Disclaimer
+
+LexTrack es un **asistente**, no reemplaza el criterio profesional del abogado. Cada respuesta lleva sus fuentes citadas (artículo, rol, tribunal, fecha) para que el usuario verifique.
