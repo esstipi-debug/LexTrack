@@ -3,6 +3,42 @@ import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { leykarinDenuncias, leykarinActuaciones } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
+import {
+  generarProtocoloKarin,
+  generarChecklistKarin,
+  type EmpresaInput,
+} from "./lib/karin/protocolo";
+
+const canalEnum = z.enum([
+  "presencial",
+  "escrito_fisico",
+  "formulario_web",
+  "correo_electronico",
+  "linea_telefonica",
+  "buzon_anonimo",
+]);
+
+const empresaSchema = z.object({
+  razonSocial: z.string().min(1),
+  rut: z.string().min(1),
+  rubro: z.string().min(1),
+  domicilioPrincipal: z.string().min(1),
+  dotacionTotal: z.number().int().nonnegative(),
+  sucursales: z.array(z.string()).default([]),
+  encargadoNombre: z.string().min(1),
+  encargadoCargo: z.string().min(1),
+  encargadoEmail: z.string().email(),
+  encargadoTelefono: z.string().optional(),
+  encargadoSuplenteNombre: z.string().optional(),
+  encargadoSuplenteCargo: z.string().optional(),
+  canalesDenuncia: z.array(canalEnum).min(1),
+  emailDenuncias: z.string().email().optional(),
+  telefonoDenuncias: z.string().optional(),
+  urlFormulario: z.string().url().optional(),
+  representanteLegalNombre: z.string().min(1),
+  representanteLegalRut: z.string().min(1),
+  fechaVigencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
 
 export const leykarinRouter = createRouter({
   listar: publicQuery.query(async () => {
@@ -63,6 +99,17 @@ export const leykarinRouter = createRouter({
         actor: input.actor || null,
       });
       return { ok: true };
+    }),
+
+  generarProtocolo: publicQuery
+    .input(empresaSchema)
+    .mutation(async ({ input }) => {
+      const empresa = input as EmpresaInput;
+      return {
+        protocolo: generarProtocoloKarin(empresa),
+        checklist: generarChecklistKarin(empresa),
+        generadoEn: new Date().toISOString(),
+      };
     }),
 
   estadisticas: publicQuery.query(async () => {

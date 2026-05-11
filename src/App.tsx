@@ -9,6 +9,7 @@ import Asistente from "./pages/Asistente";
 import Generador from "./pages/Generador";
 import Jurisprudencia from "./pages/Jurisprudencia";
 import LeyKarin from "./pages/LeyKarin";
+import LeyKarinProtocolo from "./pages/LeyKarinProtocolo";
 import Honorarios from "./pages/Honorarios";
 import DiarioOficial from "./pages/DiarioOficial";
 import Login from "./pages/Login";
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/generador" element={<Generador />} />
               <Route path="/jurisprudencia" element={<Jurisprudencia />} />
               <Route path="/ley-karin" element={<LeyKarin />} />
+              <Route path="/ley-karin/protocolo" element={<LeyKarinProtocolo />} />
               <Route path="/honorarios" element={<Honorarios />} />
               <Route path="/diario-oficial" element={<DiarioOficial />} />
               <Route path="*" element={<NotFound />} />
