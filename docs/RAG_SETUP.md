@@ -17,7 +17,13 @@ Copia `.env.example` → `.env` y completa:
 1. Abrí el proyecto en [Neon](https://neon.tech).
 2. **SQL Editor** → pegá el contenido de **`db/neon-setup.sql`** → ejecutá todo.
 
-Esto crea la extensión `vector` y la tabla `rag_chunks` (vectores dimensión **1024**, alineado con `voyage-law-2`).
+Esto crea la extensión `vector`, la tabla `rag_chunks` (vectores dimensión **1024**, alineado con `voyage-law-2`), índice **GIN** para FTS en español e índice **HNSW** sobre `embedding` para acelerar `ORDER BY embedding <=> …` ([pgvector en Neon](https://neon.tech/docs/extensions/pgvector)).
+
+Si ya creaste la tabla antes sin índice vectorial, ejecutá solo:
+
+```sql
+CREATE INDEX IF NOT EXISTS rag_chunks_embedding_hnsw_idx ON rag_chunks USING hnsw (embedding vector_cosine_ops);
+```
 
 ## 3. Verificar conexión desde el repo
 

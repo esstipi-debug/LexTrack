@@ -21,3 +21,7 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
 
 CREATE INDEX IF NOT EXISTS rag_chunks_source_idx ON rag_chunks (source);
 CREATE INDEX IF NOT EXISTS rag_chunks_fts_idx ON rag_chunks USING gin (to_tsvector('spanish', contenido));
+
+-- Búsqueda por similitud (ORDER BY embedding <=> …); vector_cosine_ops alinea con operador <=>
+-- https://neon.tech/docs/extensions/pgvector#indexing-vectors
+CREATE INDEX IF NOT EXISTS rag_chunks_embedding_hnsw_idx ON rag_chunks USING hnsw (embedding vector_cosine_ops);
