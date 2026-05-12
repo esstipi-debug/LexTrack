@@ -14,8 +14,14 @@ Copia `.env.example` → `.env` y completa:
 
 ## 2. Crear tablas en Neon
 
-1. Abrí el proyecto en [Neon](https://neon.tech).
-2. **SQL Editor** → pegá el contenido de **`db/neon-setup.sql`** → ejecutá todo.
+**Opción A — desde tu PC (recomendado):** con `RAG_DATABASE_URL` ya en `.env`:
+
+```bash
+npm run rag:apply-schema
+npm run rag:verify-db
+```
+
+**Opción B — SQL Editor en Neon:** pegá **`db/neon-setup.sql`** y ejecutá todo.
 
 Esto crea la extensión `vector`, la tabla `rag_chunks` (vectores dimensión **1024**, alineado con `voyage-law-2`), índice **GIN** para FTS en español e índice **HNSW** sobre `embedding` para acelerar `ORDER BY embedding <=> …` ([pgvector en Neon](https://neon.tech/docs/extensions/pgvector)).
 

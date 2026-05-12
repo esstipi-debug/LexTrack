@@ -17,6 +17,7 @@
     "db:push": "drizzle-kit push",
     "rag:ingest": "tsx scripts/ingest-rag-chunks.ts",
     "rag:verify-db": "tsx scripts/verify-rag-db.ts",
+    "rag:apply-schema": "tsx scripts/apply-rag-schema.ts",
     "db:rag:push": "drizzle-kit push --config=drizzle.rag.config.ts"
   },
   "dependencies": {
