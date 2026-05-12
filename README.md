@@ -31,6 +31,7 @@ Anclaje: *"59 lucas al mes. 7 horas más a la semana. El asistente que tu estudi
 - 📋 [Estrategia de producto](docs/STRATEGY.md) — quién es el cliente, qué hace, qué no hace, pricing, moat.
 - 🏛 [Arquitectura técnica](docs/ARCHITECTURE.md) — RAG híbrido, scraping centralizado, stack, costos.
 - 🗺 [Roadmap MVP 6 semanas](docs/ROADMAP.md) — plan ejecutable.
+- 🐘 [RAG Postgres / Neon](docs/RAG_SETUP.md) — variables `.env`, SQL inicial, ingesta y verificación.
 
 ## Stack
 
