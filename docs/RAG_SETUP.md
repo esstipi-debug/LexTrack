@@ -1,5 +1,23 @@
 # RAG en Postgres (Neon u otro Postgres)
 
+## Solo esto — qué hacer y en qué orden
+
+**Meta:** que LexTrack pueda usar tu base **Neon** para el RAG (vectores). Eso implica: (1) guardar la dirección de Neon en un archivo en tu PC, (2) crear las tablas en Neon, (3) más tarde copiar los datos desde MySQL.
+
+| Paso | Dónde lo hacés | Qué hacés |
+|------|----------------|-----------|
+| **1** | En **GitHub Desktop / Cursor / Explorador**: carpeta **`LexTrack`** (donde está **`package.json`**) | Abrís esa carpeta como proyecto. Si no sabés cuál es: en Cursor **Archivo → Abrir carpeta** y elegís `...\Documents\GitHub\LexTrack`. |
+| **2** | En esa misma carpeta (al lado de `package.json`) | Creás el archivo **`.env`** si no existe: copiá **`.env.example`** y renombrá la copia a **`.env`** (solo la palabra `.env`, con el punto adelante). |
+| **3** | En la página web **neon.tech** (tu proyecto Neon) | Copiás la **connection string** de Postgres (menú tipo “Connection string”). |
+| **4** | Dentro del archivo **`.env`** en tu PC (abrilo con Cursor: clic en el archivo) | Pegás **una línea nueva**: `RAG_DATABASE_URL=` y pegás la URL que copiaste de Neon. Sin comillas. Guardás el archivo (**Ctrl+S**). |
+| **5** | En Cursor: menú **Terminal → Nueva terminal** | La terminal debe estar **dentro** del proyecto. Si no estás seguro, escribí: `cd` espacio y arrastrá la carpeta `LexTrack` a la terminal y Enter (Windows te pone la ruta sola). |
+| **6** | En esa terminal | Ejecutás primero: `npm run rag:apply-schema` → crea tablas en Neon leyendo `db/neon-setup.sql`. Después: `npm run rag:verify-db` → debe decir OK y cuántas filas hay (al principio **0**). |
+| **7** | Cuando tengas MySQL funcionando y una API key de Voyage | En el mismo **`.env`** completás `DATABASE_URL` (MySQL) y `VOYAGE_API_KEY`. En la terminal: `npm run rag:ingest` → copia textos/embeddings a Neon. |
+
+Si algo falla al conectar, probá en la URL de Neon **quitar** `channel_binding=require` y dejar `sslmode=require`.
+
+---
+
 ## Dónde está cada cosa en este repo
 
 La **raíz del proyecto LexTrack** es la carpeta que contiene el archivo **`package.json`** (no una subcarpeta como `api/` ni `src/`).
