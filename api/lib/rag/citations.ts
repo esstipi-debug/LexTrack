@@ -12,6 +12,11 @@ export interface RetrievedChunk {
   rol?: string | null;
   tribunal?: string | null;
   contenido: string;
+  /** Metadatos opcionales para renderizar respuesta (Postgres RAG / UI). */
+  norma?: string | null;
+  titulo?: string | null;
+  fecha?: string | null;
+  caratula?: string | null;
 }
 
 export interface VerificationResult {

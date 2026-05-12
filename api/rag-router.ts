@@ -1,11 +1,20 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
+import { getRagPool } from "./queries/rag-pg";
 import { documentosLegales, conversacionesRag, jurisprudencias } from "@db/schema";
 import { sql } from "drizzle-orm";
 import { verifyCitations } from "./lib/rag/citations";
-import { formatLegalCitation, rowsToRetrievedChunks } from "./lib/rag/chunks";
+import { rowsToRetrievedChunks } from "./lib/rag/chunks";
 import { rankDocumentosLegales, rankJurisprudencia } from "./lib/rag/retrieve-local";
+import { hybridRetrieve, pgRowToRetrievedChunk } from "./lib/rag/pg-hybrid";
+import { renderChatMarkdownFromChunks } from "./lib/rag/chat-markdown";
+import { answerWithClaude } from "./lib/rag/llm-answer";
+import { env } from "./lib/env";
+
+function emptyRagMessage(mensaje: string): string {
+  return `No encontré normativa específica sobre "${mensaje}" en mi base de datos.\n\nTe sugiero:\n• Reformular tu consulta con términos más generales\n• Consultar directamente en www.leychile.cl\n• Verificar si la norma pertenece a otra legislación (civil, penal, etc.)`;
+}
 
 export const ragRouter = createRouter({
   buscar: publicQuery
@@ -48,59 +57,68 @@ export const ragRouter = createRouter({
       const db = getDb();
       const { mensaje, sessionId } = input;
 
-      const docs = await db
-        .select()
-        .from(documentosLegales)
-        .where(sql`${documentosLegales.estaActiva} = 1`);
-
-      const scoredDocs = rankDocumentosLegales(mensaje, docs, 3);
-
-      const juris = await db
-        .select()
-        .from(jurisprudencias)
-        .where(sql`${jurisprudencias.estaActiva} = 1`);
-
-      const scoredJuris = rankJurisprudencia(mensaje, juris, 2);
-
+      let pipeline: "mysql_lexical" | "pg_hybrid" | "pg_hybrid_llm" = "mysql_lexical";
       let respuesta = "";
-      const fuentes: string[] = [];
-      const retrievedChunks = rowsToRetrievedChunks(scoredDocs, scoredJuris);
+      let fuentes: string[] = [];
+      let retrievedChunks = rowsToRetrievedChunks([], []);
 
-      if (scoredDocs.length === 0 && scoredJuris.length === 0) {
-        respuesta = `No encontré normativa específica sobre "${mensaje}" en mi base de datos.\n\nTe sugiero:\n• Reformular tu consulta con términos más generales\n• Consultar directamente en www.leychile.cl\n• Verificar si la norma pertenece a otra legislación (civil, penal, etc.)`;
-      } else {
-        respuesta = `**Análisis normativo:**\n\n`;
+      const pool = getRagPool();
+      const canHybrid = Boolean(pool && env.voyageApiKey?.trim());
 
-        if (scoredDocs.length > 0) {
-          respuesta += `**Normativa aplicable:**\n\n`;
-          scoredDocs.forEach((d, i) => {
-            const contenido =
-              d.contenido.length > 500 ? d.contenido.substring(0, 500) + "..." : d.contenido;
-            const cite = formatLegalCitation(d);
-            respuesta += `${i + 1}. **${d.articulo || d.titulo}** (${d.norma})\n${contenido}\nCita: ${cite}\n\n`;
-            fuentes.push(`${d.norma} — ${d.articulo || d.titulo}`);
-          });
-        }
-
-        if (scoredJuris.length > 0) {
-          respuesta += `**Jurisprudencia relevante:**\n\n`;
-          scoredJuris.forEach((j, i) => {
-            const extracto = j.extracto || (j.contenido.length > 300 ? j.contenido.substring(0, 300) + "..." : j.contenido);
-            const rit = j.rit?.trim();
-            const fecha = j.fechaSentencia ? String(j.fechaSentencia) : "s/fecha";
-            const tribunal = j.tribunal || "Tribunal";
-            respuesta += `${i + 1}. **${j.caratula || j.rit}** — ${tribunal}\n${extracto}\n`;
-            if (rit) {
-              respuesta += `Cita: [Rol N° ${rit} / ${tribunal} / ${fecha}]\n\n`;
-              fuentes.push(`Fallo: ${rit}`);
-            } else {
-              respuesta += "\n";
-              fuentes.push(`Fallo: ${j.caratula || "sentencia"}`);
+      if (canHybrid && pool) {
+        try {
+          const cnt = await pool.query<{ c: string }>("SELECT COUNT(*)::text AS c FROM rag_chunks");
+          const n = parseInt(cnt.rows[0]?.c ?? "0", 10);
+          if (n > 0) {
+            const hybridRows = await hybridRetrieve(pool, mensaje);
+            if (hybridRows.length > 0) {
+              retrievedChunks = hybridRows.map(pgRowToRetrievedChunk);
+              const useLlm = Boolean(env.anthropicApiKey?.trim());
+              pipeline = useLlm ? "pg_hybrid_llm" : "pg_hybrid";
+              if (useLlm) {
+                respuesta = await answerWithClaude(mensaje, retrievedChunks);
+                fuentes = retrievedChunks.map((c) =>
+                  c.source === "jurisprudencia"
+                    ? `Fallo: ${c.rol || c.caratula || c.id}`
+                    : `${c.norma || "—"} — ${c.articulo || c.titulo || ""}`
+                );
+              } else {
+                const out = renderChatMarkdownFromChunks(retrievedChunks);
+                respuesta = out.markdown;
+                fuentes = out.fuentes;
+              }
             }
-          });
+          }
+        } catch (e) {
+          console.error("[rag] hybrid pipeline failed", e);
         }
+      }
 
-        respuesta += `---\n*Esta información es orientativa. Verifica siempre las fuentes oficiales en www.leychile.cl*`;
+      if (!respuesta) {
+        pipeline = "mysql_lexical";
+        const docs = await db
+          .select()
+          .from(documentosLegales)
+          .where(sql`${documentosLegales.estaActiva} = 1`);
+
+        const scoredDocs = rankDocumentosLegales(mensaje, docs, 3);
+
+        const juris = await db
+          .select()
+          .from(jurisprudencias)
+          .where(sql`${jurisprudencias.estaActiva} = 1`);
+
+        const scoredJuris = rankJurisprudencia(mensaje, juris, 2);
+
+        retrievedChunks = rowsToRetrievedChunks(scoredDocs, scoredJuris);
+
+        if (scoredDocs.length === 0 && scoredJuris.length === 0) {
+          respuesta = emptyRagMessage(mensaje);
+        } else {
+          const out = renderChatMarkdownFromChunks(retrievedChunks);
+          respuesta = out.markdown;
+          fuentes = out.fuentes;
+        }
       }
 
       const verification =
@@ -120,17 +138,21 @@ export const ragRouter = createRouter({
           sessionId,
           role: "assistant",
           content: respuesta,
-          contexto: JSON.stringify(scoredDocs.map((d) => d.id)),
+          contexto: JSON.stringify(retrievedChunks.map((c) => c.id)),
           fuentes: fuentes.join("; "),
         });
       }
 
+      const docCount = retrievedChunks.filter((c) => c.source === "CT" || c.source === "ley_especial").length;
+      const jurisCount = retrievedChunks.filter((c) => c.source === "jurisprudencia").length;
+
       return {
         respuesta,
         fuentes,
-        documentosEncontrados: scoredDocs.length,
-        jurisprudenciaEncontrada: scoredJuris.length,
+        documentosEncontrados: docCount,
+        jurisprudenciaEncontrada: jurisCount,
         verificacionCitas: verification,
+        pipeline,
       };
     }),
 
@@ -165,11 +187,23 @@ export const ragRouter = createRouter({
       {} as Record<string, number>
     );
 
+    let ragPostgresChunks: number | null = null;
+    const pool = getRagPool();
+    if (pool) {
+      try {
+        const r = await pool.query<{ c: string }>("SELECT COUNT(*)::text AS c FROM rag_chunks");
+        ragPostgresChunks = parseInt(r.rows[0]?.c ?? "0", 10);
+      } catch {
+        ragPostgresChunks = null;
+      }
+    }
+
     return {
       totalDocumentos: totalDocs.length,
       totalJurisprudencia: totalJuris.length,
       totalConversaciones: totalConversaciones.length,
       porNorma,
+      ragPostgresChunks,
     };
   }),
 });

@@ -23,4 +23,6 @@ export const env = {
   voyageEmbedModel: process.env.VOYAGE_EMBED_MODEL ?? "voyage-law-2",
   cohereApiKey: process.env.COHERE_API_KEY ?? "",
   cohereRerankModel: process.env.COHERE_RERANK_MODEL ?? "rerank-multilingual-v3.0",
+  /** Postgres + pgvector solo para índice RAG (opcional; MySQL sigue siendo la app principal). */
+  ragDatabaseUrl: process.env.RAG_DATABASE_URL ?? process.env.DATABASE_URL_POSTGRES ?? "",
 };

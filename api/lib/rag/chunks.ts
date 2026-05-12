@@ -32,6 +32,8 @@ export function rowsToRetrievedChunks(
       source: normaSource(d.norma),
       articulo: d.articulo,
       contenido: d.contenido,
+      norma: d.norma,
+      titulo: d.titulo,
     });
   }
   for (const j of juris) {
@@ -41,6 +43,8 @@ export function rowsToRetrievedChunks(
       rol: j.rit,
       tribunal: j.tribunal,
       contenido: j.contenido,
+      caratula: j.caratula,
+      fecha: j.fechaSentencia ? String(j.fechaSentencia) : undefined,
     });
   }
   return out;
