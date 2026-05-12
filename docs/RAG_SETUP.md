@@ -16,6 +16,11 @@
 
 Si algo falla al conectar, probá en la URL de Neon **quitar** `channel_binding=require` y dejar `sslmode=require`.
 
+### Esquema canónico de este repo (no mezclar con otros tutoriales)
+
+LexTrack usa la tabla **`rag_chunks`** y vectores de **1024** dimensiones (modelo **`voyage-law-2`** en `.env.example`).  
+Si ves en otro lado un SQL con **`rag_documents`**, **`vector(1536)`** o funciones tipo **`match_documents()`** de otro tutorial, **no** lo uses con este código sin adaptar todo el backend: aquí el archivo correcto es **`db/neon-setup.sql`**.
+
 ---
 
 ## Dónde está cada cosa en este repo
