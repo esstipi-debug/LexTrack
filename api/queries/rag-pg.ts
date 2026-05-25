@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as ragSchema from "../../db/schema-rag";
 import { env } from "../lib/env";
+import { ragPgPoolConfig } from "../lib/rag/pg-connect";
 
 let pool: pg.Pool | null = null;
 
@@ -10,7 +11,7 @@ export function getRagPool(): pg.Pool | null {
   const url = env.ragDatabaseUrl;
   if (!url?.trim()) return null;
   if (!pool) {
-    pool = new pg.Pool({ connectionString: url, max: 10 });
+    pool = new pg.Pool(ragPgPoolConfig(url));
   }
   return pool;
 }

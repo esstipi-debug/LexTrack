@@ -9,6 +9,7 @@ import { getDb } from "../api/queries/connection";
 import { documentosLegales, jurisprudencias } from "../db/schema";
 import { embedTexts } from "../api/lib/voyage";
 import { normaSource } from "../api/lib/rag/chunks";
+import { ragPgPoolConfig } from "../api/lib/rag/pg-connect";
 
 const BATCH = 24;
 
@@ -71,7 +72,7 @@ async function main() {
   }
 
   const mysql = getDb();
-  const pool = new pg.Pool({ connectionString: ragUrl });
+  const pool = new pg.Pool(ragPgPoolConfig(ragUrl));
 
   try {
     await pool.query(`SELECT 1 FROM rag_chunks LIMIT 1`);

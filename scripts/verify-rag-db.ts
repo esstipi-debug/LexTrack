@@ -4,6 +4,7 @@
  */
 import "dotenv/config";
 import pg from "pg";
+import { ragPgPoolConfig } from "../api/lib/rag/pg-connect";
 
 async function main() {
   const url = process.env.RAG_DATABASE_URL?.trim() || process.env.DATABASE_URL_POSTGRES?.trim();
@@ -12,10 +13,7 @@ async function main() {
     process.exit(1);
   }
 
-  const pool = new pg.Pool({
-    connectionString: url,
-    ssl: url.includes("neon.tech") ? { rejectUnauthorized: true } : undefined,
-  });
+  const pool = new pg.Pool(ragPgPoolConfig(url));
 
   try {
     const ext = await pool.query<{ extname: string }>(

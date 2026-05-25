@@ -8,6 +8,7 @@ import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import pg from "pg";
+import { ragPgPoolConfig } from "../api/lib/rag/pg-connect";
 
 function stripSqlComments(sql: string): string {
   return sql
@@ -28,7 +29,7 @@ function splitStatements(sql: string): string[] {
 async function main() {
   const url = process.env.RAG_DATABASE_URL?.trim() || process.env.DATABASE_URL_POSTGRES?.trim();
   if (!url) {
-    console.error("Configura RAG_DATABASE_URL en .env (cadena Postgres de Neon).");
+    console.error("Configura RAG_DATABASE_URL en .env (AlloyDB, Neon u otro Postgres).");
     process.exit(1);
   }
 
@@ -45,10 +46,7 @@ async function main() {
     process.exit(1);
   }
 
-  const pool = new pg.Pool({
-    connectionString: url,
-    ssl: url.includes("neon.tech") ? { rejectUnauthorized: true } : undefined,
-  });
+  const pool = new pg.Pool(ragPgPoolConfig(url));
 
   try {
     for (let i = 0; i < statements.length; i++) {
