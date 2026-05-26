@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router";
 import AppLayout from "./components/AppLayout";
 import Home from "./pages/Home";
 import Causas from "./pages/Causas";
+import CausaDetalle from "./pages/CausaDetalle";
 import Alertas from "./pages/Alertas";
 import Tareas from "./pages/Tareas";
 import Checklists from "./pages/Checklists";
@@ -26,6 +27,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/causas" element={<Causas />} />
+              <Route path="/causas/:id" element={<CausaDetalle />} />
               <Route path="/alertas" element={<Alertas />} />
               <Route path="/tareas" element={<Tareas />} />
               <Route path="/checklists" element={<Checklists />} />
