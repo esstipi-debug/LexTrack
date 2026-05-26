@@ -9,14 +9,7 @@ import {
   alertas,
   honorarios,
   actividadReciente,
-  expedientes,
-  cronologia,
-  notas,
-  leykarinDenuncias,
-  leykarinActuaciones,
-  diarioOficialNormas,
 } from "../schema";
-import { seedServiciosCompletos } from "./servicios-completos";
 import { sql } from "drizzle-orm";
 
 // ─── Importar Títulos del Código del Trabajo ─────────────────────
@@ -47,47 +40,31 @@ import { libro5Jurisdiccion } from "./libro5-jurisdiccion";
 import { leyesEspeciales } from "./leyes-especiales";
 
 // ─── CONFIGURACIÓN ───────────────────────────────────────────────
-const BATCH_SIZE = 15;
+const BATCH_SIZE = 5; // Small batches to avoid prepared-statement limits with large content
 
 // ─── BATCH INSERT HELPER ─────────────────────────────────────────
-function truncateLongFields<T>(items: T[]): T[] {
-  return items.map(item => {
-    const obj = { ...item } as any;
-    // Truncate contenido to max 150 chars to fit MySQL prepared statement limits
-    if (obj.contenido && typeof obj.contenido === 'string' && obj.contenido.length > 150) {
-      obj.contenido = obj.contenido.slice(0, 147) + '...';
-    }
-    return obj as T;
-  });
-}
-
 async function batchInsert<T>(table: any, data: T[]) {
   const db = getDb();
-  const truncatedData = truncateLongFields(data);
   let inserted = 0;
-  for (let i = 0; i < truncatedData.length; i += BATCH_SIZE) {
-    const batch = truncatedData.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < data.length; i += BATCH_SIZE) {
+    const batch = data.slice(i, i + BATCH_SIZE);
     try {
       await db.insert(table).values(batch as any);
       inserted += batch.length;
     } catch {
-      // Fallback: insert one by one with extra truncation
+      // Fallback: insert one by one (no truncation — preserve full content)
       for (const item of batch) {
         try {
-          const obj = { ...(item as any) };
-          if (obj.contenido && obj.contenido.length > 100) {
-            obj.contenido = obj.contenido.slice(0, 97) + '...';
-          }
-          await db.insert(table).values(obj as any);
+          await db.insert(table).values(item as any);
           inserted++;
         } catch {
-          // Skip items that still don't fit
+          // Skip items that fail to insert
         }
       }
     }
-    process.stdout.write(`  ${Math.min(i + BATCH_SIZE, truncatedData.length)}/${truncatedData.length}\r`);
+    process.stdout.write(`  ${Math.min(i + BATCH_SIZE, data.length)}/${data.length}\r`);
   }
-  if (truncatedData.length > 0) console.log(`  ${inserted}/${truncatedData.length} OK`);
+  if (data.length > 0) console.log(`  ${inserted}/${data.length} OK`);
 }
 
 // ─── SEED PRINCIPAL ──────────────────────────────────────────────
@@ -107,13 +84,7 @@ async function seedCompleto() {
   await db.delete(honorarios);
   await db.delete(alertas);
   await db.delete(tareas);
-  await db.delete(cronologia);
-  await db.delete(notas);
-  await db.delete(leykarinActuaciones);
-  await db.delete(leykarinDenuncias);
-  await db.delete(diarioOficialNormas);
   await db.delete(causas);
-  await db.delete(expedientes);
   console.log("       Tablas limpias.\n");
 
   // 2. INSERTAR DOCUMENTOS LEGALES (TODOS LOS TITULOS Y LIBROS)
@@ -233,10 +204,7 @@ async function seedCompleto() {
   ] as any);
   console.log("       Datos insertados.\n");
 
-  // 6. SERVICIOS COMPLETOS (expedientes, causas ricas, tareas, alertas, cronología, notas, honorarios, Ley Karin, Diario Oficial)
-  await seedServiciosCompletos(db);
-
-  // 7. VERIFICACIÓN FINAL
+  // 6. VERIFICACIÓN FINAL
   console.log("[6/6] Verificando inserción...");
   const countDocs = await db.select().from(documentosLegales);
   const countJuris = await db.select().from(jurisprudencias);

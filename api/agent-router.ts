@@ -5,6 +5,7 @@ import { getRagPool } from "./queries/rag-pg";
 import { consultarCausa, buscarPorRut } from "./lib/pjud/client";
 import { sincronizarCausa } from "./lib/pjud/sync";
 import { generarActaRecepcion, generarInformeFinal, generarNotificacionMedidas } from "./lib/karin/documentos";
+import { getUFActual } from "./lib/uf";
 import {
   causas, tareas, alertas, honorarios, jurisprudencias,
   documentosLegales, leykarinDenuncias, leykarinActuaciones, diarioOficialNormas,
@@ -421,7 +422,8 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
     }
 
     case "calcular_indemnizacion": {
-      const UF_VALUE = 37200;
+      const uf = await getUFActual();
+      const UF_VALUE = uf.valor;
       const TOPE_REMUNERACION = 90 * UF_VALUE;
       const TOPE_ANIOS = 11;
 
@@ -451,6 +453,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
           totalEstimado: Math.round(total),
         },
         baseNormativa: "Art. 163 inc. 2° CT (tope 11 años), Art. 172 CT (base de cálculo), Art. 169 letra a) CT (aviso previo)",
+        uf: { valor: UF_VALUE, fecha: uf.fecha, fuente: uf.fuente },
       });
     }
 
@@ -555,7 +558,8 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
       const rit = String(input.rit ?? "[RIT]");
       const datosAdicionales = String(input.datos_adicionales ?? "");
 
-      const UF = 37200;
+      const ufData = await getUFActual();
+      const UF = ufData.valor;
       const remCalc = Math.min(remuneracion, 90 * UF);
       const totalAnios = Math.min(anios, 11);
       const indemnizacion = totalAnios * remCalc;
