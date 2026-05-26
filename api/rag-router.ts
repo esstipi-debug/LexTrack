@@ -51,11 +51,19 @@ export const ragRouter = createRouter({
       z.object({
         mensaje: z.string().min(1),
         sessionId: z.string().optional(),
+        historial: z
+          .array(
+            z.object({
+              role: z.enum(["user", "assistant"]),
+              content: z.string(),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(async ({ input }) => {
       const db = getDb();
-      const { mensaje, sessionId } = input;
+      const { mensaje, sessionId, historial } = input;
 
       let pipeline: "mysql_lexical" | "pg_hybrid" | "pg_hybrid_llm" = "mysql_lexical";
       let respuesta = "";
@@ -76,7 +84,7 @@ export const ragRouter = createRouter({
               const useLlm = Boolean(env.anthropicApiKey?.trim());
               pipeline = useLlm ? "pg_hybrid_llm" : "pg_hybrid";
               if (useLlm) {
-                respuesta = await answerWithClaude(mensaje, retrievedChunks);
+                respuesta = await answerWithClaude(mensaje, retrievedChunks, historial);
                 fuentes = retrievedChunks.map((c) =>
                   c.source === "jurisprudencia"
                     ? `Fallo: ${c.rol || c.caratula || c.id}`
@@ -122,10 +130,16 @@ export const ragRouter = createRouter({
       }
 
       const verification =
-        retrievedChunks.length > 0 ? verifyCitations(respuesta, retrievedChunks) : { ok: true, invalidArticles: [], invalidRoles: [] };
+        retrievedChunks.length > 0
+          ? verifyCitations(respuesta, retrievedChunks)
+          : { ok: true, invalidArticles: [], invalidRoles: [], invalidLeyes: [], citasSugeridas: [] };
 
       if (!verification.ok) {
-        respuesta += `\n\n⚠️ **Verificación interna:** algunas citas no pudieron validarse contra el contexto recuperado (artículos: ${verification.invalidArticles.join(", ") || "—"}; roles: ${verification.invalidRoles.join(", ") || "—"}). Revisa las fuentes antes de usar esta respuesta en un caso real.`;
+        const parts: string[] = [];
+        if (verification.invalidArticles.length > 0) parts.push(`artículos: ${verification.invalidArticles.join(", ")}`);
+        if (verification.invalidRoles.length > 0) parts.push(`roles: ${verification.invalidRoles.join(", ")}`);
+        if (verification.invalidLeyes.length > 0) parts.push(`leyes: ${verification.invalidLeyes.join(", ")}`);
+        respuesta += `\n\n⚠️ **Verificación interna:** algunas citas no pudieron validarse contra el contexto recuperado (${parts.join("; ") || "—"}). Revisa las fuentes antes de usar esta respuesta en un caso real.`;
       }
 
       if (sessionId) {
