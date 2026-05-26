@@ -1,6 +1,6 @@
 # Postgres 16 + pgvector — stack objetivo para RAG híbrido (BM25 + embeddings).
 # Uso: docker compose up -d
-# DATABASE_URL (Postgres): postgresql://lextrack:lextrack@localhost:5432/lextrack
+# DATABASE_URL (Postgres): postgresql://lextrack:${POSTGRES_PASSWORD}@localhost:5432/lextrack
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -8,13 +8,19 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: lextrack
-      POSTGRES_PASSWORD: lextrack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme-use-a-strong-password}
       POSTGRES_DB: lextrack
     ports:
       - "5432:5432"
     volumes:
       - lextrack_pgdata:/var/lib/postgresql/data
       - ./db/docker/init-pgvector.sql:/docker-entrypoint-initdb.d/init-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lextrack -d lextrack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   lextrack_pgdata:
