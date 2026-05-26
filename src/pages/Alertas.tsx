@@ -3,6 +3,26 @@ import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Bell,
   Eye,
@@ -17,6 +37,7 @@ import {
   Building,
   Info,
   Zap,
+  Plus,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -167,6 +188,44 @@ export default function Alertas() {
   const marcarTodasLeidas = trpc.alerta.marcarTodasLeidas.useMutation({ onSuccess: invalidar });
   const archivar = trpc.alerta.archivar.useMutation({ onSuccess: invalidar });
 
+  const [crearOpen, setCrearOpen] = useState(false);
+  const [nuevoTitulo, setNuevoTitulo] = useState("");
+  const [nuevoDescripcion, setNuevoDescripcion] = useState("");
+  const [nuevoTipo, setNuevoTipo] = useState("system");
+  const [nuevoPrioridad, setNuevoPrioridad] = useState("media");
+  const [nuevoFechaVencimiento, setNuevoFechaVencimiento] = useState("");
+
+  const crearAlerta = trpc.alerta.crear.useMutation({
+    onSuccess: () => {
+      invalidar();
+      setCrearOpen(false);
+      resetCrearForm();
+      toast.success("Alerta creada exitosamente");
+    },
+    onError: (err) => {
+      toast.error("Error al crear alerta: " + err.message);
+    },
+  });
+
+  function resetCrearForm() {
+    setNuevoTitulo("");
+    setNuevoDescripcion("");
+    setNuevoTipo("system");
+    setNuevoPrioridad("media");
+    setNuevoFechaVencimiento("");
+  }
+
+  function handleCrearSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    crearAlerta.mutate({
+      titulo: nuevoTitulo,
+      descripcion: nuevoDescripcion || undefined,
+      tipo: nuevoTipo,
+      prioridad: nuevoPrioridad,
+      fechaVencimiento: nuevoFechaVencimiento || undefined,
+    });
+  }
+
   const alertas = alertasData ?? [];
 
   const filtradas = alertas.filter((a) => {
@@ -194,18 +253,85 @@ export default function Alertas() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Alertas</h1>
           <p className="text-gray-500 text-sm">Notificaciones y plazos importantes del sistema</p>
         </div>
-        {pendientes.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => marcarTodasLeidas.mutate()}
-            disabled={marcarTodasLeidas.isPending}
-            className="gap-2"
-          >
-            <CheckCheck className="w-4 h-4" />
-            Marcar todas leídas
-          </Button>
-        )}
+        <div className="flex gap-2">
+          <Dialog open={crearOpen} onOpenChange={(v) => { setCrearOpen(v); if (!v) resetCrearForm(); }}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="w-4 h-4 mr-2" />
+                Nueva Alerta
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nueva Alerta</DialogTitle>
+                <DialogDescription>Cree una nueva alerta o notificación.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCrearSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoTitulo">Título *</Label>
+                  <Input id="nuevoTitulo" value={nuevoTitulo} onChange={(e) => setNuevoTitulo(e.target.value)} placeholder="Título de la alerta" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoDescripcion">Descripción</Label>
+                  <Textarea id="nuevoDescripcion" value={nuevoDescripcion} onChange={(e) => setNuevoDescripcion(e.target.value)} placeholder="Descripción detallada..." />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Tipo</Label>
+                    <Select value={nuevoTipo} onValueChange={setNuevoTipo}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cambio_estado">Cambio de estado</SelectItem>
+                        <SelectItem value="nuevo_movimiento">Nuevo movimiento</SelectItem>
+                        <SelectItem value="prazo_proximo">Plazo próximo</SelectItem>
+                        <SelectItem value="audiencia_programada">Audiencia programada</SelectItem>
+                        <SelectItem value="cambio_normativo">Cambio normativo</SelectItem>
+                        <SelectItem value="system">Sistema</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Prioridad</Label>
+                    <Select value={nuevoPrioridad} onValueChange={setNuevoPrioridad}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="baja">Baja</SelectItem>
+                        <SelectItem value="media">Media</SelectItem>
+                        <SelectItem value="alta">Alta</SelectItem>
+                        <SelectItem value="critica">Crítica</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoFechaVencimiento">Fecha de Vencimiento</Label>
+                  <Input id="nuevoFechaVencimiento" type="date" value={nuevoFechaVencimiento} onChange={(e) => setNuevoFechaVencimiento(e.target.value)} />
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={crearAlerta.isPending}>
+                    {crearAlerta.isPending ? "Creando..." : "Crear Alerta"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          {pendientes.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => marcarTodasLeidas.mutate()}
+              disabled={marcarTodasLeidas.isPending}
+              className="gap-2"
+            >
+              <CheckCheck className="w-4 h-4" />
+              Marcar todas leídas
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}
