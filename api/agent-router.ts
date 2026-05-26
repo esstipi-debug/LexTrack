@@ -2,6 +2,8 @@ import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
+import { consultarCausa, buscarPorRut } from "./lib/pjud/client";
+import { sincronizarCausa } from "./lib/pjud/sync";
 import {
   causas, tareas, alertas, honorarios, jurisprudencias,
   documentosLegales, leykarinDenuncias, diarioOficialNormas,
@@ -224,6 +226,29 @@ const agentTools: AnthropicTool[] = [
         profundidad: { type: "string", enum: ["resumen", "completo"], description: "Nivel de detalle del análisis (default: completo)" },
       },
       required: [],
+    },
+  },
+  {
+    name: "consultar_pjud",
+    description: "Consulta el estado de una causa en el Poder Judicial de Chile (PJUD). Busca por RIT (ej: T-123-2025) o por RUT del litigante. Usa esta herramienta cuando el usuario pida consultar, buscar o verificar una causa en el Poder Judicial.",
+    input_schema: {
+      type: "object",
+      properties: {
+        rit: { type: "string", description: "RIT de la causa (ej: T-123-2025)" },
+        rut: { type: "string", description: "RUT del litigante (ej: 12.345.678-9)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "sincronizar_causa",
+    description: "Sincroniza una causa del estudio con los datos actuales del Poder Judicial. Detecta cambios de estado y nuevos movimientos. Usa esta herramienta cuando el usuario pida sincronizar, actualizar o verificar el estado de una causa contra el PJUD.",
+    input_schema: {
+      type: "object",
+      properties: {
+        causa_id: { type: "number", description: "ID de la causa en LexTrack a sincronizar" },
+      },
+      required: ["causa_id"],
     },
   },
 ];
@@ -1216,6 +1241,27 @@ Firma juez: _________________________
           tipo: n.tipo, contenido: n.contenido.slice(0, 300), fecha: n.createdAt,
         })),
       });
+    }
+
+    case "consultar_pjud": {
+      const rit = input.rit ? String(input.rit) : null;
+      const rut = input.rut ? String(input.rut) : null;
+
+      if (rut) {
+        const results = await buscarPorRut(rut);
+        return JSON.stringify({ tipo: "busqueda_rut", rut, resultados: results, total: results.length });
+      }
+      if (rit) {
+        const result = await consultarCausa(rit);
+        return JSON.stringify({ tipo: "consulta_rit", rit, resultado: result, encontrada: !!result });
+      }
+      return JSON.stringify({ error: "Debes proporcionar un RIT o RUT para consultar el PJUD" });
+    }
+
+    case "sincronizar_causa": {
+      const causaId = Number(input.causa_id);
+      const result = await sincronizarCausa(causaId);
+      return JSON.stringify(result);
     }
 
     default:

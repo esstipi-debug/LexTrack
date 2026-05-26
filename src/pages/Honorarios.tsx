@@ -1,171 +1,97 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { trpc } from "@/providers/trpc";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DollarSign,
   TrendingUp,
   TrendingDown,
   Wallet,
-  AlertTriangle,
-  CreditCard,
+  Calculator,
+  FileText,
+  BarChart3,
+  ArrowUpRight,
+  ArrowDownRight,
+  Clock,
 } from "lucide-react";
-
-type FilterTab = "todos" | "pendientes" | "morosos" | "pagados";
-
-function formatCLP(amount: number): string {
-  return "$" + amount.toLocaleString("es-CL");
-}
-
-const estadoConfig: Record<string, { label: string; className: string }> = {
-  pendiente: {
-    label: "Pendiente",
-    className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  },
-  pagado_parcial: {
-    label: "Parcial",
-    className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  },
-  pagado: {
-    label: "Pagado",
-    className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  },
-  vencido: {
-    label: "Vencido",
-    className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-  },
-  cobranza: {
-    label: "Cobranza",
-    className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-  },
-  moroso: {
-    label: "Moroso",
-    className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-  },
-};
-
-const filterTabs: { key: FilterTab; label: string }[] = [
-  { key: "todos", label: "Todos" },
-  { key: "pendientes", label: "Pendientes" },
-  { key: "morosos", label: "Morosos" },
-  { key: "pagados", label: "Pagados" },
-];
 
 export default function Honorarios() {
   const { data: honorarios, isLoading } = trpc.honorario.listar.useQuery();
-  const { data: stats } = trpc.honorario.dashboard.useQuery();
-  const utils = trpc.useUtils();
+  const { data: stats } = trpc.honorario.estadisticas.useQuery();
+  const { data: agingData } = trpc.honorario.aging.useQuery();
+  const { data: resumenMensual } = trpc.honorario.resumenMensual.useQuery();
 
-  const [activeTab, setActiveTab] = useState<FilterTab>("todos");
-  const [pagoDialogOpen, setPagoDialogOpen] = useState(false);
-  const [pagoTarget, setPagoTarget] = useState<{
-    id: number;
-    concepto: string;
-    monto: number;
-    montoPagado: number;
-  } | null>(null);
-  const [pagoMonto, setPagoMonto] = useState("");
+  const [interesDialogOpen, setInteresDialogOpen] = useState(false);
+  const [selectedHonorarioId, setSelectedHonorarioId] = useState<number | null>(null);
+  const [cartaDialogOpen, setCartaDialogOpen] = useState(false);
+  const [cartaHonorarioId, setCartaHonorarioId] = useState<number | null>(null);
+  const [cartaNumero, setCartaNumero] = useState<number>(1);
+  const [cuentaDialogOpen, setCuentaDialogOpen] = useState(false);
+  const [cuentaCliente, setCuentaCliente] = useState<string>("");
 
-  const registrarPagoMut = trpc.honorario.registrarPago.useMutation({
-    onSuccess: () => {
-      utils.honorario.listar.invalidate();
-      utils.honorario.dashboard.invalidate();
-      utils.honorario.estadisticas.invalidate();
-      setPagoDialogOpen(false);
-      setPagoTarget(null);
-      setPagoMonto("");
-    },
-  });
+  const { data: interesData } = trpc.honorario.calcularIntereses.useQuery(
+    { id: selectedHonorarioId! },
+    { enabled: !!selectedHonorarioId },
+  );
 
-  const filteredAndSorted = useMemo(() => {
-    if (!honorarios) return [];
+  const { data: cartaData } = trpc.honorario.generarCartaCobranza.useQuery(
+    { id: cartaHonorarioId!, numero: cartaNumero },
+    { enabled: !!cartaHonorarioId && cartaNumero > 0 },
+  );
 
-    let filtered = [...honorarios];
+  const { data: cuentaData } = trpc.honorario.estadoCuenta.useQuery(
+    { cliente: cuentaCliente },
+    { enabled: !!cuentaCliente && cuentaDialogOpen },
+  );
 
-    // Apply filter tab
-    switch (activeTab) {
-      case "pendientes":
-        filtered = filtered.filter(
-          (h) =>
-            h.estado === "pendiente" ||
-            h.estado === "pagado_parcial" ||
-            h.estado === "vencido" ||
-            h.estado === "cobranza"
-        );
-        break;
-      case "morosos":
-        filtered = filtered.filter(
-          (h) => h.estado === "moroso" || h.estado === "vencido"
-        );
-        break;
-      case "pagados":
-        filtered = filtered.filter((h) => h.estado === "pagado");
-        break;
-    }
+  const estadoColor: Record<string, string> = {
+    pendiente: "bg-amber-100 text-amber-700",
+    pagado_parcial: "bg-blue-100 text-blue-700",
+    pagado: "bg-green-100 text-green-700",
+    vencido: "bg-red-100 text-red-700",
+    cobranza: "bg-orange-100 text-orange-700",
+    moroso: "bg-red-200 text-red-800",
+  };
 
-    // Sort: overdue first, then by fechaVencimiento ascending
-    const now = new Date();
-    filtered.sort((a, b) => {
-      const aOverdue =
-        a.estado !== "pagado" &&
-        a.fechaVencimiento &&
-        new Date(a.fechaVencimiento) < now;
-      const bOverdue =
-        b.estado !== "pagado" &&
-        b.fechaVencimiento &&
-        new Date(b.fechaVencimiento) < now;
+  // Unique clients list
+  const clientes = Array.from(
+    new Set((honorarios || []).map((h) => h.cliente)),
+  );
 
-      // Overdue items first
-      if (aOverdue && !bOverdue) return -1;
-      if (!aOverdue && bOverdue) return 1;
-
-      // Then by fechaVencimiento ascending (soonest first)
-      const aDate = a.fechaVencimiento
-        ? new Date(a.fechaVencimiento).getTime()
-        : Infinity;
-      const bDate = b.fechaVencimiento
-        ? new Date(b.fechaVencimiento).getTime()
-        : Infinity;
-      return aDate - bDate;
-    });
-
-    return filtered;
-  }, [honorarios, activeTab]);
-
-  function openPagoDialog(h: {
-    id: number;
-    concepto: string;
-    monto: number;
-    montoPagado: number;
-  }) {
-    setPagoTarget(h);
-    setPagoMonto("");
-    setPagoDialogOpen(true);
+  // Check if item is overdue
+  function esVencido(h: { estado: string; fechaVencimiento: string | null }) {
+    if (h.estado === "pagado") return false;
+    if (h.estado === "vencido" || h.estado === "moroso" || h.estado === "cobranza")
+      return true;
+    if (!h.fechaVencimiento) return false;
+    return new Date(h.fechaVencimiento) < new Date();
   }
 
-  function handleRegistrarPago() {
-    if (!pagoTarget) return;
-    const monto = parseInt(pagoMonto, 10);
-    if (isNaN(monto) || monto <= 0) return;
-    registrarPagoMut.mutate({ id: pagoTarget.id, monto });
+  function esMoroso(h: { estado: string }) {
+    return (
+      h.estado === "moroso" ||
+      h.estado === "cobranza" ||
+      h.estado === "vencido"
+    );
   }
-
-  const isOverdue = (h: { estado: string; fechaVencimiento: string | Date | null }) =>
-    h.estado !== "pagado" &&
-    h.fechaVencimiento &&
-    new Date(h.fechaVencimiento) < new Date();
 
   return (
     <div className="space-y-4">
@@ -174,21 +100,21 @@ export default function Honorarios() {
           Honorarios y Cobranza
         </h1>
         <p className="text-gray-500">
-          Gestion de honorarios y estado de cobranza
+          Gestion de honorarios, intereses y estado de cobranza
         </p>
       </div>
 
-      {/* Summary Cards */}
+      {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-green-600" />
-                <span className="text-sm text-gray-500">Total Facturado</span>
+                <span className="text-sm text-gray-500">Facturado</span>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {formatCLP(stats.totalFacturado)}
+                ${stats.totalFacturado.toLocaleString("es-CL")}
               </p>
             </CardContent>
           </Card>
@@ -196,10 +122,10 @@ export default function Honorarios() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
                 <TrendingDown className="w-5 h-5 text-blue-600" />
-                <span className="text-sm text-gray-500">Total Cobrado</span>
+                <span className="text-sm text-gray-500">Pagado</span>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {formatCLP(stats.totalPagado)}
+                ${stats.totalPagado.toLocaleString("es-CL")}
               </p>
             </CardContent>
           </Card>
@@ -207,234 +133,494 @@ export default function Honorarios() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
                 <Wallet className="w-5 h-5 text-amber-600" />
-                <span className="text-sm text-gray-500">
-                  Pendiente de Cobro
-                </span>
+                <span className="text-sm text-gray-500">Por cobrar</span>
               </div>
               <p className="text-xl font-bold text-amber-600">
-                {formatCLP(stats.totalPendiente)}
+                ${stats.porCobrar.toLocaleString("es-CL")}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-                <span className="text-sm text-gray-500">Morosos</span>
+                <DollarSign className="w-5 h-5 text-gray-600" />
+                <span className="text-sm text-gray-500">Documentos</span>
               </div>
-              <p className="text-xl font-bold text-red-600">
-                {formatCLP(stats.totalMoroso)}
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {stats.totalDocumentos}
               </p>
-              {stats.morosos.length > 0 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  {stats.morosos.length} cliente
-                  {stats.morosos.length !== 1 ? "s" : ""}
-                </p>
-              )}
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Filter Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {filterTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.key
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs defaultValue="honorarios">
+        <TabsList>
+          <TabsTrigger value="honorarios">Honorarios</TabsTrigger>
+          <TabsTrigger value="aging">Aging</TabsTrigger>
+          <TabsTrigger value="mensual">Comparacion Mensual</TabsTrigger>
+        </TabsList>
 
-      {/* List */}
-      {isLoading ? (
-        <p className="text-gray-400">Cargando...</p>
-      ) : (
-        <div className="space-y-2">
-          {filteredAndSorted.map((h) => {
-            const progress =
-              h.monto > 0
-                ? Math.min(
-                    Math.round(((h.montoPagado || 0) / h.monto) * 100),
-                    100
-                  )
-                : 0;
-            const overdue = isOverdue(h);
-            const config = estadoConfig[h.estado] || {
-              label: h.estado,
-              className: "bg-gray-100 text-gray-700",
-            };
-
-            return (
-              <Card
-                key={h.id}
-                className={overdue ? "border-red-300 dark:border-red-700" : ""}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <DollarSign className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span className="font-medium text-gray-900 dark:text-white truncate">
-                          {h.concepto}
-                        </span>
-                        <Badge className={config.className}>
-                          {config.label}
-                        </Badge>
-                        {overdue && (
-                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                            Vencido
+        {/* ─── Honorarios Tab ─────────────────────────────────────── */}
+        <TabsContent value="honorarios">
+          {isLoading ? (
+            <p className="text-gray-400">Cargando...</p>
+          ) : (
+            <div className="space-y-2">
+              {(honorarios || []).map((h) => (
+                <Card key={h.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <DollarSign className="w-4 h-4 text-gray-400 shrink-0" />
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {h.concepto}
+                          </span>
+                          <Badge
+                            className={estadoColor[h.estado] || "bg-gray-100"}
+                          >
+                            {h.estado}
                           </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Cliente: {h.cliente}
-                      </p>
-                      {h.fechaVencimiento && (
-                        <p
-                          className={`text-xs mt-0.5 ${
-                            overdue ? "text-red-500 font-medium" : "text-gray-400"
-                          }`}
-                        >
-                          Vence:{" "}
-                          {new Date(h.fechaVencimiento).toLocaleDateString(
-                            "es-CL"
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          Cliente: {h.cliente}
+                          {h.fechaVencimiento && (
+                            <span className="ml-2">
+                              | Vence: {h.fechaVencimiento}
+                            </span>
                           )}
                         </p>
-                      )}
-                      {/* Progress bar */}
-                      <div className="mt-2 flex items-center gap-2">
-                        <Progress value={progress} className="flex-1 h-2" />
-                        <span className="text-xs text-gray-500 w-10 text-right">
-                          {progress}%
-                        </span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {formatCLP(h.montoPagado || 0)} de{" "}
-                        {formatCLP(h.monto)}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0 flex flex-col items-end gap-2">
-                      <p className="font-bold text-gray-900 dark:text-white">
-                        {formatCLP(h.monto)}
-                      </p>
-                      {h.estado !== "pagado" && (
+                      <div className="text-right shrink-0">
+                        <p className="font-bold text-gray-900 dark:text-white">
+                          ${h.monto.toLocaleString("es-CL")}
+                        </p>
+                        {h.montoPagado > 0 && (
+                          <p className="text-xs text-gray-400">
+                            Pagado: ${h.montoPagado.toLocaleString("es-CL")}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Calcular Intereses button - shown on overdue items */}
+                        {esVencido(h) && (
+                          <Dialog
+                            open={
+                              interesDialogOpen &&
+                              selectedHonorarioId === h.id
+                            }
+                            onOpenChange={(open) => {
+                              setInteresDialogOpen(open);
+                              if (open) setSelectedHonorarioId(h.id);
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title="Calcular Intereses"
+                              >
+                                <Calculator className="w-4 h-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>
+                                  Calculo de Intereses por Mora
+                                </DialogTitle>
+                                <DialogDescription>
+                                  {h.concepto} - {h.cliente}
+                                </DialogDescription>
+                              </DialogHeader>
+                              {interesData?.interes ? (
+                                <div className="space-y-3">
+                                  <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <div className="text-gray-500">
+                                      Monto pendiente:
+                                    </div>
+                                    <div className="font-medium">
+                                      $
+                                      {interesData.interes.montoPendiente.toLocaleString(
+                                        "es-CL",
+                                      )}
+                                    </div>
+                                    <div className="text-gray-500">
+                                      Dias en mora:
+                                    </div>
+                                    <div className="font-medium">
+                                      {interesData.interes.diasMora}
+                                    </div>
+                                    <div className="text-gray-500">
+                                      Tasa mensual:
+                                    </div>
+                                    <div className="font-medium">
+                                      {interesData.interes.tasaMensual}%
+                                    </div>
+                                    <div className="text-gray-500">
+                                      Interes calculado:
+                                    </div>
+                                    <div className="font-medium text-red-600">
+                                      $
+                                      {interesData.interes.interesCalculado.toLocaleString(
+                                        "es-CL",
+                                      )}
+                                    </div>
+                                    <div className="text-gray-500 font-semibold">
+                                      Total con interes:
+                                    </div>
+                                    <div className="font-bold text-lg">
+                                      $
+                                      {interesData.interes.totalConInteres.toLocaleString(
+                                        "es-CL",
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-gray-400 mt-2">
+                                    {interesData.interes.baseNormativa}
+                                  </p>
+                                </div>
+                              ) : (
+                                <p className="text-gray-400 text-sm">
+                                  {interesData?.mensaje ||
+                                    "Cargando..."}
+                                </p>
+                              )}
+                            </DialogContent>
+                          </Dialog>
+                        )}
+
+                        {/* Generar Carta dropdown - shown on moroso items */}
+                        {esMoroso(h) && (
+                          <Dialog
+                            open={
+                              cartaDialogOpen && cartaHonorarioId === h.id
+                            }
+                            onOpenChange={(open) => {
+                              setCartaDialogOpen(open);
+                              if (open) {
+                                setCartaHonorarioId(h.id);
+                                setCartaNumero(1);
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title="Generar Carta de Cobranza"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                              <DialogHeader>
+                                <DialogTitle>
+                                  Carta de Cobranza
+                                </DialogTitle>
+                                <DialogDescription>
+                                  {h.concepto} - {h.cliente}
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="mb-4">
+                                <label className="text-sm text-gray-500 mb-1 block">
+                                  Numero de carta:
+                                </label>
+                                <Select
+                                  value={String(cartaNumero)}
+                                  onValueChange={(v) =>
+                                    setCartaNumero(parseInt(v))
+                                  }
+                                >
+                                  <SelectTrigger className="w-60">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="1">
+                                      1ra Carta - Recordatorio
+                                    </SelectItem>
+                                    <SelectItem value="2">
+                                      2da Carta - Aviso Urgente
+                                    </SelectItem>
+                                    <SelectItem value="3">
+                                      3ra Carta - Aviso Judicial
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {cartaData?.markdown ? (
+                                <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm bg-gray-50 dark:bg-gray-900 rounded p-4">
+                                  {cartaData.markdown}
+                                </div>
+                              ) : (
+                                <p className="text-gray-400 text-sm">
+                                  Generando carta...
+                                </p>
+                              )}
+                            </DialogContent>
+                          </Dialog>
+                        )}
+
+                        {/* Estado de Cuenta button per client */}
                         <Button
+                          variant="ghost"
                           size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            openPagoDialog({
-                              id: h.id,
-                              concepto: h.concepto,
-                              monto: h.monto,
-                              montoPagado: h.montoPagado || 0,
-                            })
-                          }
-                          className="text-xs"
+                          title="Estado de Cuenta"
+                          onClick={() => {
+                            setCuentaCliente(h.cliente);
+                            setCuentaDialogOpen(true);
+                          }}
                         >
-                          <CreditCard className="w-3 h-3 mr-1" />
-                          Registrar Pago
+                          <BarChart3 className="w-4 h-4" />
                         </Button>
-                      )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {(!honorarios || honorarios.length === 0) && (
+                <p className="text-gray-400 text-center py-8">
+                  No hay honorarios registrados
+                </p>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ─── Aging Tab ──────────────────────────────────────────── */}
+        <TabsContent value="aging">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Antiguedad de Deuda (Aging Report)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {agingData ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-500">
+                    Total pendientes: {agingData.totalPendientes} documentos
+                  </p>
+                  {agingData.buckets.map((bucket) => {
+                    const totalMonto = agingData.buckets.reduce(
+                      (a, b) => a + b.monto,
+                      0,
+                    );
+                    const pct =
+                      totalMonto > 0
+                        ? Math.round((bucket.monto / totalMonto) * 100)
+                        : 0;
+                    return (
+                      <div key={bucket.label} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{bucket.label}</span>
+                          <span className="text-gray-500">
+                            {bucket.count} docs | $
+                            {bucket.monto.toLocaleString("es-CL")} ({pct}%)
+                          </span>
+                        </div>
+                        <Progress value={pct} className="h-3" />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-gray-400 text-sm">Cargando...</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── Monthly Comparison Tab ─────────────────────────────── */}
+        <TabsContent value="mensual">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5" />
+                Comparacion Mensual
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {resumenMensual ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Current month */}
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-semibold text-sm text-gray-500 mb-3">
+                        Mes Actual ({resumenMensual.mesActual.label})
+                      </h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Documentos:</span>
+                          <span className="font-medium">
+                            {resumenMensual.mesActual.total}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Facturado:</span>
+                          <span className="font-medium">
+                            $
+                            {resumenMensual.mesActual.facturado.toLocaleString(
+                              "es-CL",
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Cobrado:</span>
+                          <span className="font-medium text-green-600">
+                            $
+                            {resumenMensual.mesActual.cobrado.toLocaleString(
+                              "es-CL",
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Pendiente:</span>
+                          <span className="font-medium text-amber-600">
+                            $
+                            {resumenMensual.mesActual.pendiente.toLocaleString(
+                              "es-CL",
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Previous month */}
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-semibold text-sm text-gray-500 mb-3">
+                        Mes Anterior ({resumenMensual.mesAnterior.label})
+                      </h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Documentos:</span>
+                          <span className="font-medium">
+                            {resumenMensual.mesAnterior.total}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Facturado:</span>
+                          <span className="font-medium">
+                            $
+                            {resumenMensual.mesAnterior.facturado.toLocaleString(
+                              "es-CL",
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Cobrado:</span>
+                          <span className="font-medium text-green-600">
+                            $
+                            {resumenMensual.mesAnterior.cobrado.toLocaleString(
+                              "es-CL",
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Pendiente:</span>
+                          <span className="font-medium text-amber-600">
+                            $
+                            {resumenMensual.mesAnterior.pendiente.toLocaleString(
+                              "es-CL",
+                            )}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-          {filteredAndSorted.length === 0 && (
-            <p className="text-gray-400 text-center py-8">
-              {activeTab === "todos"
-                ? "No hay honorarios registrados"
-                : `No hay honorarios en la categoria "${activeTab}"`}
-            </p>
-          )}
-        </div>
-      )}
 
-      {/* Registrar Pago Dialog */}
-      <Dialog open={pagoDialogOpen} onOpenChange={setPagoDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Registrar Pago</DialogTitle>
-            <DialogDescription>
-              {pagoTarget && (
-                <>
-                  {pagoTarget.concepto} - Pendiente:{" "}
-                  {formatCLP(pagoTarget.monto - pagoTarget.montoPagado)}
-                </>
+                  {/* Variation */}
+                  <div className="border rounded-lg p-4">
+                    <h3 className="font-semibold text-sm text-gray-500 mb-3">
+                      Variacion
+                    </h3>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="text-center">
+                        <p className="text-gray-500">Facturado</p>
+                        <p
+                          className={`font-bold flex items-center justify-center gap-1 ${
+                            resumenMensual.variacion.facturado >= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {resumenMensual.variacion.facturado >= 0 ? (
+                            <ArrowUpRight className="w-4 h-4" />
+                          ) : (
+                            <ArrowDownRight className="w-4 h-4" />
+                          )}
+                          $
+                          {Math.abs(
+                            resumenMensual.variacion.facturado,
+                          ).toLocaleString("es-CL")}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-500">Cobrado</p>
+                        <p
+                          className={`font-bold flex items-center justify-center gap-1 ${
+                            resumenMensual.variacion.cobrado >= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {resumenMensual.variacion.cobrado >= 0 ? (
+                            <ArrowUpRight className="w-4 h-4" />
+                          ) : (
+                            <ArrowDownRight className="w-4 h-4" />
+                          )}
+                          $
+                          {Math.abs(
+                            resumenMensual.variacion.cobrado,
+                          ).toLocaleString("es-CL")}
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-gray-500">Pendiente</p>
+                        <p
+                          className={`font-bold flex items-center justify-center gap-1 ${
+                            resumenMensual.variacion.pendiente <= 0
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {resumenMensual.variacion.pendiente <= 0 ? (
+                            <ArrowDownRight className="w-4 h-4" />
+                          ) : (
+                            <ArrowUpRight className="w-4 h-4" />
+                          )}
+                          $
+                          {Math.abs(
+                            resumenMensual.variacion.pendiente,
+                          ).toLocaleString("es-CL")}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-sm">Cargando...</p>
               )}
-            </DialogDescription>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Estado de Cuenta Dialog */}
+      <Dialog open={cuentaDialogOpen} onOpenChange={setCuentaDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Estado de Cuenta</DialogTitle>
+            <DialogDescription>Cliente: {cuentaCliente}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="pago-monto">Monto del pago (CLP)</Label>
-              <Input
-                id="pago-monto"
-                type="number"
-                min={1}
-                max={
-                  pagoTarget
-                    ? pagoTarget.monto - pagoTarget.montoPagado
-                    : undefined
-                }
-                placeholder="Ej: 500000"
-                value={pagoMonto}
-                onChange={(e) => setPagoMonto(e.target.value)}
-              />
+          {cuentaData?.markdown ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm bg-gray-50 dark:bg-gray-900 rounded p-4">
+              {cuentaData.markdown}
             </div>
-            {pagoTarget && pagoMonto && (
-              <div className="text-sm text-gray-500 space-y-1">
-                <p>
-                  Total facturado: {formatCLP(pagoTarget.monto)}
-                </p>
-                <p>
-                  Ya pagado: {formatCLP(pagoTarget.montoPagado)}
-                </p>
-                <p>
-                  Este pago: {formatCLP(parseInt(pagoMonto, 10) || 0)}
-                </p>
-                <p className="font-medium">
-                  Restante despues del pago:{" "}
-                  {formatCLP(
-                    Math.max(
-                      0,
-                      pagoTarget.monto -
-                        pagoTarget.montoPagado -
-                        (parseInt(pagoMonto, 10) || 0)
-                    )
-                  )}
-                </p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setPagoDialogOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleRegistrarPago}
-              disabled={
-                registrarPagoMut.isPending ||
-                !pagoMonto ||
-                parseInt(pagoMonto, 10) <= 0
-              }
-            >
-              {registrarPagoMut.isPending
-                ? "Registrando..."
-                : "Confirmar Pago"}
-            </Button>
-          </DialogFooter>
+          ) : (
+            <p className="text-gray-400 text-sm">Generando estado de cuenta...</p>
+          )}
         </DialogContent>
       </Dialog>
     </div>

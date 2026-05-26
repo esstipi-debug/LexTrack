@@ -15,6 +15,7 @@ import Honorarios from "./pages/Honorarios";
 import DiarioOficial from "./pages/DiarioOficial";
 import ConsultaLegal from "./pages/ConsultaLegal";
 import CausaDetalle from "./pages/CausaDetalle";
+import PoderJudicial from "./pages/PoderJudicial";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
@@ -42,6 +43,7 @@ export default function App() {
                 <Route path="/diario-oficial" element={<DiarioOficial />} />
                 <Route path="/consulta-legal" element={<ConsultaLegal />} />
                 <Route path="/causas/:id" element={<CausaDetalle />} />
+                <Route path="/poder-judicial" element={<PoderJudicial />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </AppLayout>

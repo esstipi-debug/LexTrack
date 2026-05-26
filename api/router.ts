@@ -12,6 +12,7 @@ import { honorarioRouter } from "./honorario-router";
 import { diarioOficialRouter } from "./diariooficial-router";
 import { agentRouter } from "./agent-router";
 import { statsRouter } from "./stats-router";
+import { pjudRouter } from "./pjud-router";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -28,6 +29,7 @@ export const appRouter = createRouter({
   diarioOficial: diarioOficialRouter,
   agent: agentRouter,
   stats: statsRouter,
+  pjud: pjudRouter,
 });
 
 export type AppRouter = typeof appRouter;
