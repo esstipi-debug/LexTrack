@@ -1,4 +1,4 @@
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import {
   causas,
@@ -8,10 +8,10 @@ import {
   leykarinDenuncias,
   actividadReciente,
 } from "@db/schema";
-import { sql, and } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 export const statsRouter = createRouter({
-  dashboard: publicQuery.query(async () => {
+  dashboard: authedQuery.query(async () => {
     const db = getDb();
     const hoy = new Date();
     const hoyStr = hoy.toISOString().split("T")[0];

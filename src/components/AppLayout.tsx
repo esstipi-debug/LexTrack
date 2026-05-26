@@ -20,6 +20,7 @@ import {
   Moon,
   BookOpen,
   CheckSquare,
+  Building2,
 } from "lucide-react";
 import { useLexTheme } from "@/hooks/use-lex-theme";
 
@@ -49,6 +50,7 @@ const studioNav = [
   { path: "/alertas", label: "Alertas", icon: AlertCircle },
   { path: "/honorarios", label: "Honorarios", icon: DollarSign },
   { path: "/jurisprudencia", label: "Jurisprudencia", icon: Scale },
+  { path: "/poder-judicial", label: "Poder Judicial", icon: Building2 },
 ];
 
 function NavLink({
