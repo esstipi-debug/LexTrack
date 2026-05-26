@@ -5,6 +5,8 @@ import {
   causas, tareas, alertas, honorarios, jurisprudencias,
   documentosLegales, leykarinDenuncias, diarioOficialNormas,
 } from "@db/schema";
+import { consultarCausa, buscarPorRut } from "./lib/pjud/client";
+import { sincronizarCausa } from "./lib/pjud/sync";
 import { eq, desc, and, sql } from "drizzle-orm";
 
 // ─── INTENCIÓN DEL AGENTE ────────────────────────────────────────
@@ -30,6 +32,8 @@ const patronesIntencion: { tipo: string; keywords: string[]; params?: string[]; 
   { tipo: "buscar_jurisprudencia", keywords: ["jurisprudencia", "fallo", "sentencia sobre", "tribunal"], peso: 3 },
   { tipo: "diario_oficial", keywords: ["diario oficial", "norma nueva", "decreto"], peso: 2 },
   { tipo: "checklist", keywords: ["checklist", "lista de verificacion", "pasos para"], peso: 2 },
+  { tipo: "consultar_pjud", keywords: ["consulta pjud", "poder judicial", "busca en pjud", "consulta causa pjud", "estado pjud", "buscar rut pjud"], peso: 3 },
+  { tipo: "sincronizar_causa", keywords: ["sincroniza causa", "sincronizar causa", "sync causa", "actualiza causa pjud", "actualizar desde pjud"], peso: 3 },
   { tipo: "despedida", keywords: ["chao", "adios", "hasta luego", "nos vemos", "gracias"], peso: 1 },
 ];
 
@@ -62,6 +66,9 @@ function extraerParams(mensaje: string): Record<string, any> {
   }
 
   params.aviso_previo = lower.includes("aviso previo") || lower.includes("dieron aviso");
+
+  const rutMatch = mensaje.match(/(\d{1,2}\.?\d{3}\.?\d{3}-[\dkK])/i);
+  if (rutMatch) params.rut = rutMatch[1];
 
   if (lower.includes("carta de despido")) params.tipo_doc = "carta_aviso_despido";
   else if (lower.includes("demanda")) params.tipo_doc = "demanda_indemnizacion";
@@ -181,8 +188,8 @@ async function ejecutarEstadisticas() {
 
 async function ejecutarAyuda() {
   return {
-    mensaje: `**Soy LexTrack AI**, tu agente legal asistente especializado en derecho laboral chileno. Esto es lo que puedo hacer:\n\n**Crear y gestionar:**\n• "Crea tarea para revisar causa C-123 mañana"\n• "Crea alerta de plazo para la causa del señor González"\n\n**Buscar y analizar:**\n• "Busca causas de González" / "Dónde está la causa C-123"\n• "Analiza la causa del señor Pérez y dime qué falta"\n\n**Cálculos:**\n• "Calcula indemnización para 5 años, sueldo 800.000"\n• "Finiquito para 3 años y 6 meses, sueldo 1.200.000"\n\n**Consulta normativa (RAG):**\n• "Artículo 163 código del trabajo"\n• "Derechos del trabajador despedido"\n• "Desconexion digital"\n• "Ley Karin"\n\n**Análisis:**\n• "Estadísticas del estudio" / "Cómo vamos"\n• "Plazos vencidos" / "Próximos plazos"\n• "Estado de cobranza"`,
-    sugerencias: ["Mis tareas", "Estadísticas", "Plazos vencidos", "Calcular indemnización"],
+    mensaje: `**Soy LexTrack AI**, tu agente legal asistente especializado en derecho laboral chileno. Esto es lo que puedo hacer:\n\n**Crear y gestionar:**\n• "Crea tarea para revisar causa C-123 mañana"\n• "Crea alerta de plazo para la causa del señor González"\n\n**Buscar y analizar:**\n• "Busca causas de González" / "Dónde está la causa C-123"\n• "Analiza la causa del señor Pérez y dime qué falta"\n\n**Poder Judicial (PJUD):**\n• "Consulta PJUD O-1234-2025" — buscar causa por RIT\n• "Busca en PJUD 12.345.678-9" — buscar por RUT\n• "Sincroniza causa O-1234-2025" — actualizar desde PJUD\n\n**Cálculos:**\n• "Calcula indemnización para 5 años, sueldo 800.000"\n• "Finiquito para 3 años y 6 meses, sueldo 1.200.000"\n\n**Consulta normativa (RAG):**\n• "Artículo 163 código del trabajo"\n• "Derechos del trabajador despedido"\n• "Desconexion digital"\n• "Ley Karin"\n\n**Análisis:**\n• "Estadísticas del estudio" / "Cómo vamos"\n• "Plazos vencidos" / "Próximos plazos"\n• "Estado de cobranza"`,
+    sugerencias: ["Mis tareas", "Estadísticas", "Consultar PJUD", "Calcular indemnización"],
   };
 }
 
@@ -288,6 +295,88 @@ export const agentRouter = createRouter({
         case "diario_oficial": {
           const normas = await db.select().from(diarioOficialNormas).orderBy(desc(diarioOficialNormas.fechaPublicacion)).limit(5);
           resultado = { mensaje: `**Últimas normas en el Diario Oficial:**`, tarjetas: normas.map(n => ({ tipo: "diario_oficial", id: n.id, titulo: n.titulo, organismo: n.organismo, fecha: n.fechaPublicacion })), sugerencias: ["Ver todas las normas"] };
+          break;
+        }
+        case "consultar_pjud": {
+          const ritParam = intencion.params.rit;
+          const rutParam = intencion.params.rut;
+          if (rutParam) {
+            const pjudResults = await buscarPorRut(rutParam);
+            if (pjudResults.length > 0) {
+              resultado = {
+                mensaje: `Encontre ${pjudResults.length} causa(s) en el Poder Judicial para RUT ${rutParam}:`,
+                tarjetas: pjudResults.map(r => ({
+                  tipo: "pjud_causa",
+                  rit: r.rit,
+                  ruc: r.ruc,
+                  caratula: r.caratula,
+                  tribunal: r.tribunal,
+                  estado: r.estado,
+                  etapa: r.etapa,
+                  fechaIngreso: r.fechaIngreso,
+                  ultimoMovimiento: r.ultimoMovimiento,
+                })),
+                sugerencias: ["Importar causa", "Buscar otro RUT"],
+              };
+            } else {
+              resultado = { mensaje: `No se encontraron causas en el Poder Judicial para RUT ${rutParam}.`, sugerencias: ["Buscar por RIT", "Buscar otro RUT"] };
+            }
+          } else if (ritParam) {
+            const pjudResult = await consultarCausa(ritParam);
+            if (pjudResult) {
+              resultado = {
+                mensaje: `Resultado del Poder Judicial para ${ritParam}:`,
+                tarjeta: {
+                  tipo: "pjud_causa",
+                  rit: pjudResult.rit,
+                  ruc: pjudResult.ruc,
+                  caratula: pjudResult.caratula,
+                  tribunal: pjudResult.tribunal,
+                  estado: pjudResult.estado,
+                  etapa: pjudResult.etapa,
+                  fechaIngreso: pjudResult.fechaIngreso,
+                  ultimoMovimiento: pjudResult.ultimoMovimiento,
+                },
+                sugerencias: ["Importar causa", "Sincronizar", "Buscar otro"],
+              };
+            } else {
+              resultado = { mensaje: `No se encontro la causa ${ritParam} en el Poder Judicial. Verifica el formato del RIT (ej: O-1234-2025).`, sugerencias: ["Buscar por RUT", "Intentar otro RIT"] };
+            }
+          } else {
+            resultado = { mensaje: `Para consultar el Poder Judicial necesito un RIT (ej: O-1234-2025) o un RUT (ej: 12.345.678-9). Indicame cual deseas buscar.`, sugerencias: ["Buscar por RIT", "Buscar por RUT"] };
+          }
+          break;
+        }
+        case "sincronizar_causa": {
+          const ritSync = intencion.params.rit;
+          if (ritSync) {
+            // Find causa by RIT to get its ID
+            const matchCausas = await db.select().from(causas).where(sql`${causas.rit} LIKE ${"%" + ritSync + "%"}`).limit(1);
+            if (matchCausas.length > 0) {
+              const syncResult = await sincronizarCausa(matchCausas[0].id);
+              if (syncResult.synced) {
+                const cambiosMsg = [];
+                if (syncResult.cambios.estadoCambio) {
+                  cambiosMsg.push(`Estado cambio de "${syncResult.cambios.estadoCambio.anterior}" a "${syncResult.cambios.estadoCambio.nuevo}"`);
+                }
+                if (syncResult.cambios.nuevosMovimientos > 0) {
+                  cambiosMsg.push(`${syncResult.cambios.nuevosMovimientos} nuevo(s) movimiento(s) detectado(s)`);
+                }
+                resultado = {
+                  mensaje: cambiosMsg.length > 0
+                    ? `Causa ${syncResult.rit} sincronizada. Cambios:\n${cambiosMsg.map(c => `- ${c}`).join("\n")}`
+                    : `Causa ${syncResult.rit} sincronizada. No se detectaron cambios.`,
+                  sugerencias: ["Ver causa", "Sincronizar otra"],
+                };
+              } else {
+                resultado = { mensaje: `Error al sincronizar: ${syncResult.error}`, sugerencias: ["Intentar de nuevo"] };
+              }
+            } else {
+              resultado = { mensaje: `No encontre la causa con RIT "${ritSync}" en tu base de datos. Primero debes importarla.`, sugerencias: ["Consultar PJUD", "Importar causa"] };
+            }
+          } else {
+            resultado = { mensaje: `Necesito el RIT de la causa que deseas sincronizar (ej: O-1234-2025).`, sugerencias: ["Ver mis causas", "Consultar PJUD"] };
+          }
           break;
         }
         case "despedida":

@@ -12,6 +12,7 @@ import LeyKarin from "./pages/LeyKarin";
 import LeyKarinProtocolo from "./pages/LeyKarinProtocolo";
 import Honorarios from "./pages/Honorarios";
 import DiarioOficial from "./pages/DiarioOficial";
+import PoderJudicial from "./pages/PoderJudicial";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/ley-karin/protocolo" element={<LeyKarinProtocolo />} />
               <Route path="/honorarios" element={<Honorarios />} />
               <Route path="/diario-oficial" element={<DiarioOficial />} />
+              <Route path="/poder-judicial" element={<PoderJudicial />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AppLayout>
