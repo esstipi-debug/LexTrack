@@ -5,6 +5,7 @@ import { getRagPool } from "./queries/rag-pg";
 import {
   causas, tareas, alertas, honorarios, jurisprudencias,
   documentosLegales, leykarinDenuncias, diarioOficialNormas,
+  cronologia, notas,
 } from "@db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { rawComplete, type AnthropicTool, type AnthropicMessage, type AnthropicContent } from "./lib/anthropic";
@@ -146,6 +147,81 @@ const agentTools: AnthropicTool[] = [
       type: "object",
       properties: {
         limite: { type: "number", description: "Número máximo de resultados (default 5)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "generar_documento",
+    description: "Genera un documento legal (carta de despido, demanda, notificación, finiquito, recurso, etc.). Usa esta herramienta cuando el usuario pida generar, redactar o crear un documento, carta, demanda o escrito legal. Si faltan datos, pide los datos necesarios antes de llamar esta herramienta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tipo: {
+          type: "string",
+          enum: ["carta_aviso_despido", "demanda_indemnizacion", "finiquito", "carta_amonestacion", "recurso_nulidad", "recurso_apelacion", "carta_renuncia", "acta_comparendo"],
+          description: "Tipo de documento a generar",
+        },
+        trabajador: { type: "string", description: "Nombre completo del trabajador" },
+        rut_trabajador: { type: "string", description: "RUT del trabajador" },
+        empresa: { type: "string", description: "Razón social de la empresa" },
+        rut_empresa: { type: "string", description: "RUT de la empresa" },
+        fecha_ingreso: { type: "string", description: "Fecha de ingreso del trabajador (YYYY-MM-DD)" },
+        fecha_termino: { type: "string", description: "Fecha de término (YYYY-MM-DD)" },
+        remuneracion: { type: "number", description: "Remuneración mensual en CLP" },
+        anios_servicio: { type: "number", description: "Años de servicio" },
+        causal: { type: "string", description: "Causal de despido o motivo legal" },
+        hechos: { type: "string", description: "Descripción de los hechos relevantes" },
+        representante: { type: "string", description: "Nombre del representante legal o abogado" },
+        tribunal: { type: "string", description: "Tribunal competente (para demandas/recursos)" },
+        rit: { type: "string", description: "RIT de la causa (para recursos)" },
+        datos_adicionales: { type: "string", description: "Cualquier dato adicional relevante para el documento" },
+      },
+      required: ["tipo"],
+    },
+  },
+  {
+    name: "calcular_plazos",
+    description: "Calcula plazos procesales laborales según el Código del Trabajo y Código de Procedimiento Civil chileno. Usa esta herramienta cuando el usuario pregunte por plazos, cuántos días tiene, cuándo vence algo, o necesite calcular un plazo judicial.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tipo_plazo: {
+          type: "string",
+          enum: [
+            "demanda_despido_injustificado",
+            "demanda_despido_indirecto",
+            "recurso_nulidad",
+            "recurso_apelacion",
+            "recurso_unificacion",
+            "contestacion_demanda",
+            "comparendo_conciliacion",
+            "investigacion_leykarin",
+            "medidas_cautelares_karin",
+            "aviso_despido",
+            "envio_finiquito",
+            "cobro_prestaciones",
+            "tutela_laboral",
+            "denuncia_practica_antisindical",
+            "prescripcion_derechos_laborales",
+          ],
+          description: "Tipo de plazo a calcular",
+        },
+        fecha_inicio: { type: "string", description: "Fecha desde la cual calcular el plazo (YYYY-MM-DD). Si no se proporciona, se usa hoy." },
+        descripcion: { type: "string", description: "Descripción adicional del contexto (opcional)" },
+      },
+      required: ["tipo_plazo"],
+    },
+  },
+  {
+    name: "analizar_causa",
+    description: "Analiza una causa judicial del estudio: evalúa riesgo, identifica plazos próximos, sugiere acciones, y resume el estado procesal. Usa esta herramienta cuando el usuario pida analizar, evaluar o revisar una causa específica.",
+    input_schema: {
+      type: "object",
+      properties: {
+        causa_id: { type: "number", description: "ID de la causa a analizar" },
+        rit: { type: "string", description: "RIT de la causa (alternativa al ID)" },
+        profundidad: { type: "string", enum: ["resumen", "completo"], description: "Nivel de detalle del análisis (default: completo)" },
       },
       required: [],
     },
@@ -422,6 +498,726 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
       });
     }
 
+    case "generar_documento": {
+      const tipo = String(input.tipo);
+      const hoy = new Date().toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric" });
+      const trabajador = String(input.trabajador ?? "[NOMBRE TRABAJADOR]");
+      const rutTrab = String(input.rut_trabajador ?? "[RUT]");
+      const empresa = String(input.empresa ?? "[EMPRESA]");
+      const rutEmp = String(input.rut_empresa ?? "[RUT EMPRESA]");
+      const representante = String(input.representante ?? "[REPRESENTANTE LEGAL]");
+      const remuneracion = Number(input.remuneracion) || 0;
+      const anios = Number(input.anios_servicio) || 0;
+      const fechaIngreso = String(input.fecha_ingreso ?? "[FECHA INGRESO]");
+      const fechaTermino = String(input.fecha_termino ?? "[FECHA TÉRMINO]");
+      const causal = String(input.causal ?? "");
+      const hechos = String(input.hechos ?? "");
+      const tribunal = String(input.tribunal ?? "[TRIBUNAL]");
+      const rit = String(input.rit ?? "[RIT]");
+      const datosAdicionales = String(input.datos_adicionales ?? "");
+
+      const UF = 37200;
+      const remCalc = Math.min(remuneracion, 90 * UF);
+      const totalAnios = Math.min(anios, 11);
+      const indemnizacion = totalAnios * remCalc;
+      const avisoPrevio = remCalc;
+      const fmtCLP = (n: number) => `$${n.toLocaleString("es-CL")}`;
+
+      let documento = "";
+
+      switch (tipo) {
+        case "carta_aviso_despido":
+          documento = `# CARTA DE AVISO DE TÉRMINO DE CONTRATO DE TRABAJO
+
+**Fecha:** ${hoy}
+
+**Señor(a):** ${trabajador}
+**RUT:** ${rutTrab}
+**Presente**
+
+**De:** ${empresa} (RUT: ${rutEmp})
+
+**REF:** Comunicación de término de relación laboral conforme al Art. 162 del Código del Trabajo.
+
+---
+
+Por medio de la presente, y de conformidad con lo dispuesto en los artículos 159, 160 y/o 161 del Código del Trabajo, se comunica a usted que su contrato de trabajo terminará con fecha **${fechaTermino}**.
+
+## CAUSAL INVOCADA
+
+${causal || "Necesidades de la empresa, Art. 161 inciso 1° del Código del Trabajo."}
+
+## HECHOS QUE FUNDAMENTAN LA CAUSAL
+
+${hechos || "[Describir circunstancias fácticas que configuran la causal invocada]"}
+
+## INDEMNIZACIONES OFRECIDAS
+
+| Concepto | Monto |
+|----------|-------|
+| Indemnización por años de servicio (Art. 163 CT) | ${remuneracion ? fmtCLP(indemnizacion) : "[CALCULAR]"} |
+| Indemnización sustitutiva del aviso previo (Art. 161 inc. 2° CT) | ${remuneracion ? fmtCLP(avisoPrevio) : "[CALCULAR]"} |
+| Feriado proporcional (Art. 73 CT) | [CALCULAR según días pendientes] |
+| Remuneraciones adeudadas | [Si aplica] |
+| **TOTAL ESTIMADO** | ${remuneracion ? fmtCLP(indemnizacion + avisoPrevio) : "[CALCULAR]"} |
+
+## DATOS DEL CONTRATO
+
+- Fecha de ingreso: ${fechaIngreso}
+- Fecha de término: ${fechaTermino}
+- Antigüedad: ${anios ? `${anios} años` : "[CALCULAR]"}
+- Última remuneración: ${remuneracion ? fmtCLP(remuneracion) : "[MONTO]"}
+
+## INFORMACIÓN AL TRABAJADOR
+
+Se le informa que tiene derecho a:
+1. **Firmar bajo protesta** conforme al Art. 169 letra a) del CT, reservándose el derecho a reclamar judicialmente.
+2. **Reclamar judicialmente** dentro del plazo de **60 días hábiles** desde la separación (Art. 168 CT).
+3. **Cobrar el seguro de cesantía** si corresponde (Ley 19.728).
+
+---
+
+**${representante}**
+Representante Legal — ${empresa}
+
+cc: Inspección del Trabajo competente (Art. 162 inc. 6° CT)
+${datosAdicionales ? `\nNota: ${datosAdicionales}` : ""}
+
+---
+*Documento generado por LexTrack. Sujeto a revisión profesional.*`;
+          break;
+
+        case "demanda_indemnizacion":
+          documento = `# DEMANDA DE INDEMNIZACIÓN POR DESPIDO INJUSTIFICADO, INDEBIDO O IMPROCEDENTE
+
+**Tribunal:** ${tribunal}
+**RIT:** ${rit}
+**Materia:** Despido injustificado — Cobro de prestaciones laborales
+
+---
+
+## EN LO PRINCIPAL: Demanda de despido injustificado y cobro de indemnizaciones.
+## PRIMER OTROSÍ: Acompaña documentos.
+## SEGUNDO OTROSÍ: Patrocinio y poder.
+
+---
+
+**S.J.L. DEL TRABAJO**
+
+**${trabajador}**, RUT ${rutTrab}, trabajador, domiciliado en [DOMICILIO], a US. respetuosamente digo:
+
+## I. PARTES
+
+**Demandante:** ${trabajador}, RUT ${rutTrab}
+**Demandado:** ${empresa}, RUT ${rutEmp}, representada legalmente por ${representante}, domiciliada en [DOMICILIO EMPRESA]
+
+## II. RELACIÓN LABORAL
+
+El demandante prestó servicios para la demandada desde el **${fechaIngreso}** hasta el **${fechaTermino}**, desempeñándose como [CARGO]. Su última remuneración mensual ascendía a ${remuneracion ? fmtCLP(remuneracion) : "[MONTO]"}.
+
+## III. HECHOS
+
+${hechos || `1. Con fecha ${fechaTermino}, la demandada procedió a poner término a la relación laboral invocando la causal del Art. 161 del Código del Trabajo.
+2. La causal invocada carece de fundamento fáctico suficiente, toda vez que [DESCRIBIR POR QUÉ NO SE CONFIGURA LA CAUSAL].
+3. En subsidio, la demandada no cumplió con las formalidades del Art. 162 del CT [si aplica].`}
+
+## IV. DERECHO
+
+1. **Art. 168 CT**: El trabajador cuyo contrato termine por aplicación injustificada de las causales de los Arts. 159, 160 o 161 CT tiene derecho a las indemnizaciones establecidas en los Arts. 162 a 163 CT, con los incrementos del Art. 168.
+2. **Art. 163 CT**: Indemnización por años de servicio equivalente a 30 días de última remuneración por cada año y fracción superior a 6 meses, con tope de 11 años (330 días).
+3. **Art. 172 CT**: Para los efectos del cálculo, la última remuneración comprende toda cantidad que estuviere percibiendo el trabajador.
+4. **Art. 168 inc. 3° CT**: Las indemnizaciones se incrementarán en un 30% si se declara injustificado (Art. 161), 50% si se declara injustificado (Art. 159/160), u 80% si no se invocó causal o no se cumplieron formalidades.
+
+## V. PRESTACIONES DEMANDADAS
+
+| Concepto | Base de cálculo | Monto |
+|----------|----------------|-------|
+| Indemnización por años de servicio (${anios} años) | ${remuneracion ? fmtCLP(remCalc) : "[MONTO]"} × ${totalAnios} | ${remuneracion ? fmtCLP(indemnizacion) : "[CALCULAR]"} |
+| Indemnización sustitutiva aviso previo | ${remuneracion ? fmtCLP(remCalc) : "[MONTO]"} | ${remuneracion ? fmtCLP(avisoPrevio) : "[CALCULAR]"} |
+| Recargo 30% Art. 168 (si Art. 161) | — | ${remuneracion ? fmtCLP(Math.round(indemnizacion * 0.3)) : "[CALCULAR]"} |
+| Feriado proporcional | — | [CALCULAR] |
+| Remuneraciones adeudadas | — | [Si aplica] |
+| Cotizaciones previsionales impagas | — | [Si aplica, Art. 162 inc. 5°] |
+| **TOTAL** | | ${remuneracion ? fmtCLP(Math.round(indemnizacion + avisoPrevio + indemnizacion * 0.3)) : "[CALCULAR]"} |
+
+## VI. PETITORIO
+
+**POR TANTO**, en mérito de lo expuesto, normas legales citadas y demás pertinentes:
+
+**RUEGO A US.:** tener por interpuesta demanda de despido injustificado en contra de **${empresa}**, representada por **${representante}**, y en definitiva declarar:
+
+1. Que el despido ha sido **injustificado** (o indebido/improcedente).
+2. Condenar a la demandada al pago de las indemnizaciones señaladas en el punto V, con los recargos del Art. 168 CT.
+3. Condenar al pago de las cotizaciones previsionales adeudadas, si las hubiere.
+4. Condenar al pago de intereses y reajustes conforme al Art. 63 CT.
+5. Condenar en costas.
+
+---
+
+**PRIMER OTROSÍ:** Acompaño los siguientes documentos:
+1. Contrato de trabajo
+2. Liquidaciones de sueldo (últimos 3 meses)
+3. Carta de despido
+4. [Otros documentos relevantes]
+
+**SEGUNDO OTROSÍ:** Designo abogado patrocinante y confiero poder a don/doña [ABOGADO], RUT [RUT ABOGADO].
+
+${datosAdicionales ? `\n---\nAntecedentes adicionales: ${datosAdicionales}` : ""}
+
+---
+*Documento generado por LexTrack. REQUIERE revisión profesional antes de presentación.*`;
+          break;
+
+        case "finiquito":
+          documento = `# FINIQUITO DE TRABAJO
+
+**Fecha:** ${hoy}
+
+---
+
+En Santiago de Chile, a ${hoy}, entre **${empresa}**, RUT ${rutEmp}, representada por **${representante}**, en adelante "el Empleador", y **${trabajador}**, RUT ${rutTrab}, en adelante "el Trabajador", se celebra el siguiente finiquito:
+
+## PRIMERO: ANTECEDENTES
+
+El Trabajador prestó servicios para el Empleador desde el **${fechaIngreso}** hasta el **${fechaTermino}**, en calidad de [CARGO].
+
+## SEGUNDO: CAUSAL DE TÉRMINO
+
+El contrato de trabajo terminó por la causal del **${causal || "Art. 161 inc. 1° del Código del Trabajo (necesidades de la empresa)"}**.
+
+## TERCERO: PRESTACIONES
+
+El Empleador paga al Trabajador las siguientes sumas:
+
+| Concepto | Monto |
+|----------|-------|
+| Remuneración proporcional (días trabajados mes actual) | [CALCULAR] |
+| Indemnización por años de servicio (Art. 163 CT) | ${remuneracion ? fmtCLP(indemnizacion) : "[CALCULAR]"} |
+| Indemnización sustitutiva aviso previo (Art. 161 CT) | ${remuneracion ? fmtCLP(avisoPrevio) : "[CALCULAR]"} |
+| Feriado legal proporcional (Art. 73 CT) | [CALCULAR] |
+| Gratificación proporcional (Art. 47 CT) | [Si aplica] |
+| Otros: [detallar] | [MONTO] |
+| **TOTAL BRUTO** | ${remuneracion ? fmtCLP(indemnizacion + avisoPrevio) + " + otros" : "[CALCULAR]"} |
+| Descuentos legales (impuestos, cotizaciones) | [CALCULAR] |
+| **TOTAL LÍQUIDO** | [CALCULAR] |
+
+## CUARTO: DECLARACIONES
+
+El Trabajador declara que con el pago de las sumas indicadas, el Empleador ha cumplido íntegramente con todas sus obligaciones laborales, previsionales y de seguridad social, declarándose total y completamente pagado de todo concepto.
+
+## QUINTO: RESERVA DE DERECHOS
+
+${datosAdicionales?.includes("protesta") ? "El Trabajador firma el presente finiquito haciendo expresa reserva de sus derechos conforme al Art. 169 letra a) del Código del Trabajo." : "El Trabajador no formula reserva alguna respecto de las prestaciones recibidas."}
+
+## SEXTO: RATIFICACIÓN
+
+El presente finiquito se ratificará ante la Inspección del Trabajo / Notario Público / Presidente del Sindicato, conforme al Art. 177 del Código del Trabajo.
+
+---
+
+| | |
+|---|---|
+| **EL EMPLEADOR** | **EL TRABAJADOR** |
+| ${representante} | ${trabajador} |
+| RUT: ${rutEmp} | RUT: ${rutTrab} |
+| | |
+| _________________________ | _________________________ |
+| Firma | Firma |
+
+**MINISTRO DE FE:**
+
+_________________________
+[Nombre y cargo del ministro de fe]
+
+---
+*Documento generado por LexTrack. REQUIERE ratificación conforme al Art. 177 CT.*`;
+          break;
+
+        case "carta_amonestacion":
+          documento = `# CARTA DE AMONESTACIÓN
+
+**Fecha:** ${hoy}
+
+**Señor(a):** ${trabajador}
+**RUT:** ${rutTrab}
+**Cargo:** [CARGO]
+**Presente**
+
+**De:** ${empresa} (RUT: ${rutEmp})
+
+---
+
+Por medio de la presente se le comunica que, conforme al Reglamento Interno de Orden, Higiene y Seguridad de la empresa, se ha resuelto aplicar a usted una **amonestación ${causal?.includes("grave") ? "grave" : "escrita"}** por los siguientes hechos:
+
+## HECHOS
+
+${hechos || "[Describir conducta específica, fecha, hora, lugar y circunstancias]"}
+
+## NORMA INFRINGIDA
+
+${causal || "[Indicar artículo del Reglamento Interno, obligación contractual o norma legal infringida]"}
+
+## ADVERTENCIA
+
+Se le informa que de reiterarse esta conducta, la empresa podrá aplicar sanciones más graves, incluyendo el término de la relación laboral conforme a las causales del Art. 160 del Código del Trabajo.
+
+Usted tiene derecho a responder por escrito a la presente comunicación dentro de [PLAZO según Reglamento Interno].
+
+---
+
+**${representante}**
+Representante Legal — ${empresa}
+
+**Recepción del trabajador:**
+
+Nombre: ${trabajador}
+Fecha: ___/___/______
+Firma: _________________________
+
+cc: Carpeta personal del trabajador
+${datosAdicionales ? `\nObservaciones: ${datosAdicionales}` : ""}
+
+---
+*Documento generado por LexTrack. Sujeto a revisión profesional.*`;
+          break;
+
+        case "recurso_nulidad":
+          documento = `# RECURSO DE NULIDAD LABORAL
+
+**Tribunal:** Ilustrísima Corte de Apelaciones de [CIUDAD]
+**Ingreso Corte:** [POR ASIGNAR]
+**RIT origen:** ${rit}
+**Tribunal origen:** ${tribunal}
+
+---
+
+## EN LO PRINCIPAL: Deduce recurso de nulidad.
+## OTROSÍ: Patrocinio y poder.
+
+---
+
+**ILUSTRÍSIMA CORTE DE APELACIONES**
+
+**${trabajador}**, RUT ${rutTrab}, representado por su abogado **${representante}**, en los autos RIT ${rit} del ${tribunal}, a US. Ilustrísima respetuosamente digo:
+
+Que, dentro del plazo legal de **10 días hábiles** contados desde la notificación de la sentencia definitiva (Art. 479 CT), vengo en deducir **recurso de nulidad** en contra de la sentencia de fecha [FECHA SENTENCIA], por las siguientes causales:
+
+## I. CAUSAL INVOCADA
+
+${causal || `**Art. 477 del Código del Trabajo** — La sentencia ha sido dictada con infracción de ley que ha influido sustancialmente en lo dispositivo del fallo.
+
+**Norma infringida:** [Indicar artículo específico]
+
+**En subsidio, Art. 478 letra [X] CT:** [Causal subsidiaria si aplica]`}
+
+## II. HECHOS
+
+${hechos || "[Describir los hechos establecidos en la sentencia que se impugnan y la forma en que se configura la causal de nulidad]"}
+
+## III. INFLUENCIA EN LO DISPOSITIVO
+
+[Explicar cómo la infracción de ley influyó sustancialmente en la parte resolutiva de la sentencia]
+
+## IV. PETITORIO
+
+**POR TANTO**, de conformidad con los Arts. 477, 478 y 479 del Código del Trabajo:
+
+**RUEGO A US. ILUSTRÍSIMA:**
+1. Tener por deducido recurso de nulidad en contra de la sentencia de fecha [FECHA].
+2. Declarar la nulidad de la sentencia recurrida.
+3. Dictar sentencia de reemplazo que [INDICAR LO SOLICITADO], o en subsidio, determinar el estado en que ha de quedar el proceso y ordenar la remisión del mismo al tribunal no inhabilitado que corresponda.
+
+---
+
+${datosAdicionales ? `Antecedentes adicionales: ${datosAdicionales}\n\n---` : ""}
+*Documento generado por LexTrack. REQUIERE revisión profesional obligatoria antes de presentación. Plazo fatal: 10 días hábiles desde notificación (Art. 479 CT).*`;
+          break;
+
+        case "recurso_apelacion":
+          documento = `# RECURSO DE APELACIÓN
+
+**RIT:** ${rit}
+**Tribunal:** ${tribunal}
+
+---
+
+**S.J.L. DEL TRABAJO**
+
+En los autos RIT **${rit}**, **${trabajador}** (RUT ${rutTrab}), representado por **${representante}**, a US. respetuosamente digo:
+
+Que, dentro del plazo legal de **5 días hábiles** (Art. 476 CT), vengo en apelar de la resolución de fecha [FECHA RESOLUCIÓN], por causar agravio a mi representado.
+
+## AGRAVIO
+
+${hechos || "[Explicar el agravio causado por la resolución apelada y los fundamentos de la apelación]"}
+
+## PETICIONES CONCRETAS
+
+${causal || "Se solicita revocar la resolución apelada y en su lugar [INDICAR LO SOLICITADO]."}
+
+**POR TANTO**, ruego a US. tener por interpuesto recurso de apelación, concederlo y elevar los antecedentes al tribunal superior.
+
+---
+*Nota: En materia laboral, la apelación procede solo contra resoluciones expresamente señaladas en el Art. 476 CT (sentencias interlocutorias que pongan término al juicio o hagan imposible su continuación, y las que se pronuncien sobre medidas cautelares).*
+
+${datosAdicionales ? `\nAntecedentes: ${datosAdicionales}` : ""}
+
+---
+*Documento generado por LexTrack. REQUIERE revisión profesional.*`;
+          break;
+
+        case "carta_renuncia":
+          documento = `# CARTA DE RENUNCIA VOLUNTARIA
+
+**Fecha:** ${hoy}
+
+**Señor(a):** ${representante || "[REPRESENTANTE EMPRESA]"}
+**${empresa}**
+**Presente**
+
+---
+
+De mi consideración:
+
+Por medio de la presente, yo **${trabajador}**, RUT ${rutTrab}, comunico a usted mi renuncia voluntaria al cargo que desempeño en ${empresa}, con efectividad a contar del **${fechaTermino || "[FECHA]"}**.
+
+${hechos ? `Motivo: ${hechos}` : ""}
+
+Solicito se sirva proceder con el finiquito correspondiente conforme al Art. 177 del Código del Trabajo, dentro del plazo de 10 días hábiles contados desde la separación efectiva.
+
+Agradezco la oportunidad laboral brindada durante ${anios ? `${anios} años` : "el tiempo"} de servicio.
+
+---
+
+**${trabajador}**
+RUT: ${rutTrab}
+
+Firma: _________________________
+
+---
+
+**Recepción del empleador:**
+Nombre: _________________________
+Fecha: ___/___/______
+Firma: _________________________
+
+---
+*Documento generado por LexTrack.*`;
+          break;
+
+        case "acta_comparendo":
+          documento = `# ACTA DE COMPARENDO DE CONCILIACIÓN
+
+**RIT:** ${rit}
+**Tribunal:** ${tribunal}
+**Fecha:** ${hoy}
+
+---
+
+En ${tribunal}, siendo las [HORA] horas del día ${hoy}, se lleva a efecto la audiencia de conciliación en los autos RIT ${rit}, compareciendo:
+
+**Demandante:** ${trabajador}, RUT ${rutTrab}, representado por [ABOGADO DEMANDANTE].
+**Demandado:** ${empresa}, RUT ${rutEmp}, representado por ${representante}.
+
+---
+
+## PROPOSICIÓN DE BASES DE CONCILIACIÓN
+
+El tribunal propone las siguientes bases de arreglo:
+
+${hechos || "[Describir las bases de conciliación propuestas]"}
+
+## RESULTADO
+
+${causal || "[ ] Las partes ACEPTAN las bases propuestas.\n[ ] Las partes NO logran acuerdo. Se cita a audiencia de juicio."}
+
+## ACUERDO (si aplica)
+
+${datosAdicionales || "[Describir los términos del acuerdo alcanzado, montos, plazos de pago, etc.]"}
+
+---
+
+Firma demandante: _________________________
+Firma demandado: _________________________
+Firma juez: _________________________
+
+---
+*Documento generado por LexTrack. Formato referencial.*`;
+          break;
+
+        default:
+          documento = `Tipo de documento "${tipo}" no reconocido. Tipos disponibles: carta_aviso_despido, demanda_indemnizacion, finiquito, carta_amonestacion, recurso_nulidad, recurso_apelacion, carta_renuncia, acta_comparendo.`;
+      }
+
+      return JSON.stringify({
+        tipo,
+        documento,
+        advertencia: "Este documento es un borrador generado automáticamente. REQUIERE revisión y ajuste por un abogado antes de su uso. No constituye asesoría legal.",
+        datosUsados: { trabajador, empresa, remuneracion, anios, causal: causal || null },
+      });
+    }
+
+    case "calcular_plazos": {
+      const tipoPlazo = String(input.tipo_plazo);
+      const fechaInicio = input.fecha_inicio ? new Date(String(input.fecha_inicio)) : new Date();
+      const fechaInicioStr = fechaInicio.toISOString().split("T")[0];
+
+      interface PlazoInfo {
+        dias: number;
+        tipo_dias: "hábiles" | "corridos";
+        norma: string;
+        descripcion: string;
+        advertencias?: string[];
+      }
+
+      const PLAZOS: Record<string, PlazoInfo> = {
+        demanda_despido_injustificado: {
+          dias: 60,
+          tipo_dias: "hábiles",
+          norma: "Art. 168 inc. 1° CT",
+          descripcion: "Plazo para demandar por despido injustificado, indebido o improcedente ante el Juzgado de Letras del Trabajo competente",
+          advertencias: ["Este plazo se suspende cuando el trabajador interpone reclamo ante la Inspección del Trabajo (Art. 168 inc. 2° CT)", "El plazo se cuenta desde la separación efectiva del trabajador"],
+        },
+        demanda_despido_indirecto: {
+          dias: 60,
+          tipo_dias: "hábiles",
+          norma: "Art. 171 CT",
+          descripcion: "Plazo para demandar despido indirecto (autodespido) por incumplimiento grave del empleador",
+          advertencias: ["El trabajador debe comunicar por escrito al empleador su decisión de poner término al contrato", "Causales: Art. 160 N° 1, 5 o 7 CT"],
+        },
+        recurso_nulidad: {
+          dias: 10,
+          tipo_dias: "hábiles",
+          norma: "Art. 479 CT",
+          descripcion: "Plazo para deducir recurso de nulidad ante la Corte de Apelaciones contra sentencia definitiva laboral",
+          advertencias: ["Plazo fatal e improrrogable", "Se cuenta desde la notificación de la sentencia", "Debe señalarse causal específica (Art. 477 o 478 CT)"],
+        },
+        recurso_apelacion: {
+          dias: 5,
+          tipo_dias: "hábiles",
+          norma: "Art. 476 CT",
+          descripcion: "Plazo para apelar resoluciones laborales apelables (interlocutorias que pongan término al juicio, medidas cautelares)",
+          advertencias: ["Solo procede contra resoluciones expresamente señaladas en el Art. 476 CT", "La sentencia definitiva NO es apelable en juicio laboral (solo recurso de nulidad)"],
+        },
+        recurso_unificacion: {
+          dias: 15,
+          tipo_dias: "hábiles",
+          norma: "Art. 483-A CT",
+          descripcion: "Plazo para interponer recurso de unificación de jurisprudencia ante la Corte Suprema",
+          advertencias: ["Se cuenta desde la notificación de la sentencia que resuelve el recurso de nulidad", "Requiere sentencias contradictorias sobre la misma materia de derecho"],
+        },
+        contestacion_demanda: {
+          dias: 5,
+          tipo_dias: "hábiles",
+          norma: "Art. 452 N° 3 CT",
+          descripcion: "Plazo para contestar la demanda antes de la audiencia preparatoria",
+          advertencias: ["Debe contestarse por escrito con al menos 5 días de anticipación a la audiencia preparatoria"],
+        },
+        comparendo_conciliacion: {
+          dias: 5,
+          tipo_dias: "hábiles",
+          norma: "Art. 497 CT (procedimiento monitorio)",
+          descripcion: "Plazo para la audiencia de conciliación en procedimiento monitorio desde notificación",
+          advertencias: ["En procedimiento de aplicación general, la conciliación es parte de la audiencia preparatoria"],
+        },
+        investigacion_leykarin: {
+          dias: 30,
+          tipo_dias: "corridos",
+          norma: "Art. 211-C CT (Ley 21.643)",
+          descripcion: "Plazo máximo para concluir la investigación de una denuncia Ley Karin",
+          advertencias: ["Se cuenta desde la recepción de la denuncia", "Prorrogable por causa justificada y documentada", "Si no se cumple, los antecedentes deben remitirse a la Dirección del Trabajo"],
+        },
+        medidas_cautelares_karin: {
+          dias: 3,
+          tipo_dias: "corridos",
+          norma: "Art. 211-B inc. 3° CT (Ley 21.643)",
+          descripcion: "Plazo para adoptar medidas de resguardo respecto de la presunta víctima",
+          advertencias: ["Medidas deben considerar proporcionalidad y enfoque de género", "Incluye: separación espacial, cambio turnos, reasignación funciones"],
+        },
+        aviso_despido: {
+          dias: 30,
+          tipo_dias: "corridos",
+          norma: "Art. 161 inc. 2° CT",
+          descripcion: "Plazo de aviso previo al trabajador antes del despido por necesidades de la empresa",
+          advertencias: ["Si no se da aviso previo, debe pagarse indemnización sustitutiva (1 mes de remuneración)", "La carta debe enviarse con copia a la Inspección del Trabajo"],
+        },
+        envio_finiquito: {
+          dias: 10,
+          tipo_dias: "hábiles",
+          norma: "Art. 177 CT",
+          descripcion: "Plazo para poner a disposición del trabajador el finiquito y el pago correspondiente",
+          advertencias: ["Se cuenta desde la separación del trabajador", "El finiquito debe ratificarse ante ministro de fe (Inspector del Trabajo, Notario, o Presidente del Sindicato)"],
+        },
+        cobro_prestaciones: {
+          dias: 60,
+          tipo_dias: "hábiles",
+          norma: "Art. 510 inc. 3° CT (antes de reforma: 6 meses)",
+          descripcion: "Plazo para demandar el cobro de prestaciones laborales adeudadas (remuneraciones, gratificaciones, etc.)",
+          advertencias: ["El plazo general de prescripción de derechos laborales es de 2 años (Art. 510 CT)", "Este plazo de 60 días hábiles se aplica post-término de la relación laboral para acciones derivadas del despido"],
+        },
+        tutela_laboral: {
+          dias: 60,
+          tipo_dias: "hábiles",
+          norma: "Art. 486 inc. 4° CT",
+          descripcion: "Plazo para interponer denuncia de tutela laboral por vulneración de derechos fundamentales",
+          advertencias: ["Se cuenta desde la ocurrencia de la vulneración", "Si es con ocasión del despido, el plazo se cuenta desde la separación", "La acción de tutela es incompatible con la acción del Art. 168 CT (debe elegirse una)"],
+        },
+        denuncia_practica_antisindical: {
+          dias: 60,
+          tipo_dias: "hábiles",
+          norma: "Art. 292 CT",
+          descripcion: "Plazo para denunciar prácticas antisindicales ante el Juzgado de Letras del Trabajo",
+          advertencias: ["Se cuenta desde la ocurrencia del hecho", "También puede denunciarse ante la Inspección del Trabajo"],
+        },
+        prescripcion_derechos_laborales: {
+          dias: 730,
+          tipo_dias: "corridos",
+          norma: "Art. 510 CT",
+          descripcion: "Plazo de prescripción general de los derechos laborales (2 años)",
+          advertencias: ["Se cuenta desde que se hacen exigibles", "Prescripción de cotizaciones previsionales: 5 años (DL 3.500)"],
+        },
+      };
+
+      const plazo = PLAZOS[tipoPlazo];
+      if (!plazo) {
+        return JSON.stringify({ error: `Tipo de plazo "${tipoPlazo}" no reconocido`, tiposDisponibles: Object.keys(PLAZOS) });
+      }
+
+      let fechaVencimiento: Date;
+      if (plazo.tipo_dias === "corridos") {
+        fechaVencimiento = new Date(fechaInicio);
+        fechaVencimiento.setDate(fechaVencimiento.getDate() + plazo.dias);
+      } else {
+        let diasContados = 0;
+        fechaVencimiento = new Date(fechaInicio);
+        while (diasContados < plazo.dias) {
+          fechaVencimiento.setDate(fechaVencimiento.getDate() + 1);
+          const dow = fechaVencimiento.getDay();
+          if (dow !== 0 && dow !== 6) diasContados++;
+        }
+      }
+
+      const hoy = new Date();
+      const diasRestantes = Math.ceil((fechaVencimiento.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+
+      return JSON.stringify({
+        tipoPlazo,
+        plazo: {
+          dias: plazo.dias,
+          tipoDias: plazo.tipo_dias,
+          norma: plazo.norma,
+          descripcion: plazo.descripcion,
+        },
+        calculo: {
+          fechaInicio: fechaInicioStr,
+          fechaVencimiento: fechaVencimiento.toISOString().split("T")[0],
+          diasRestantesDesdeHoy: diasRestantes,
+          vencido: diasRestantes < 0,
+          urgente: diasRestantes >= 0 && diasRestantes <= 5,
+        },
+        advertencias: plazo.advertencias || [],
+        nota: plazo.tipo_dias === "hábiles"
+          ? "Cálculo no considera feriados legales. Verificar con calendario judicial vigente."
+          : "Plazo en días corridos incluye sábados, domingos y feriados.",
+      });
+    }
+
+    case "analizar_causa": {
+      const causaId = input.causa_id ? Number(input.causa_id) : null;
+      const ritBuscar = input.rit ? String(input.rit) : null;
+
+      let causa: typeof causas.$inferSelect | null = null;
+
+      if (causaId) {
+        const r = await db.select().from(causas).where(eq(causas.id, causaId)).limit(1);
+        causa = r[0] || null;
+      } else if (ritBuscar) {
+        const r = await db.select().from(causas).where(sql`${causas.rit} LIKE ${`%${ritBuscar}%`}`).limit(1);
+        causa = r[0] || null;
+      }
+
+      if (!causa) {
+        const recientes = await db.select().from(causas).orderBy(desc(causas.createdAt)).limit(5);
+        return JSON.stringify({
+          error: "No se encontró la causa especificada",
+          sugerencia: "Indica el ID o RIT de la causa",
+          causasDisponibles: recientes.map((c) => ({ id: c.id, rit: c.rit, caratula: c.caratula })),
+        });
+      }
+
+      const [tareasRelacionadas, alertasRelacionadas, historialCrono, notasCausa] = await Promise.all([
+        db.select().from(tareas).where(eq(tareas.causaId, causa.id)),
+        db.select().from(alertas).where(eq(alertas.causaId, causa.id)),
+        db.select().from(cronologia).where(eq(cronologia.causaId, causa.id)).orderBy(desc(cronologia.fecha)).limit(10),
+        db.select().from(notas).where(eq(notas.causaId, causa.id)).orderBy(desc(notas.createdAt)).limit(5),
+      ]);
+
+      const hoy = new Date();
+      const tareasPendientes = tareasRelacionadas.filter((t) => t.estado === "pendiente" || t.estado === "en_progreso");
+      const tareasVencidas = tareasPendientes.filter((t) => t.fechaVencimiento && new Date(t.fechaVencimiento) < hoy);
+      const alertasPendientes = alertasRelacionadas.filter((a) => a.estado === "pendiente");
+
+      let nivelRiesgo: "bajo" | "medio" | "alto" | "critico" = "bajo";
+      const factoresRiesgo: string[] = [];
+
+      if (tareasVencidas.length > 0) {
+        nivelRiesgo = "alto";
+        factoresRiesgo.push(`${tareasVencidas.length} tarea(s) con plazo vencido`);
+      }
+      if (alertasPendientes.length > 3) {
+        nivelRiesgo = nivelRiesgo === "alto" ? "critico" : "alto";
+        factoresRiesgo.push(`${alertasPendientes.length} alertas pendientes sin atender`);
+      }
+      if (causa.estado === "prueba" || causa.estado === "sentencia") {
+        if (nivelRiesgo === "bajo") nivelRiesgo = "medio";
+        factoresRiesgo.push(`Causa en etapa ${causa.estado} — requiere atención activa`);
+      }
+      if (!causa.fechaUltimoMovimiento) {
+        factoresRiesgo.push("Sin fecha de último movimiento registrada");
+      } else {
+        const diasSinMov = Math.ceil((hoy.getTime() - new Date(causa.fechaUltimoMovimiento).getTime()) / (1000 * 60 * 60 * 24));
+        if (diasSinMov > 30) {
+          if (nivelRiesgo === "bajo") nivelRiesgo = "medio";
+          factoresRiesgo.push(`${diasSinMov} días sin movimiento — posible abandono de procedimiento`);
+        }
+      }
+      if (tareasPendientes.length === 0 && causa.estado !== "concluida" && causa.estado !== "archivada") {
+        factoresRiesgo.push("No hay tareas pendientes asociadas a una causa activa — posible falta de seguimiento");
+      }
+
+      return JSON.stringify({
+        causa: {
+          id: causa.id,
+          rit: causa.rit,
+          ruc: causa.ruc,
+          caratula: causa.caratula,
+          tribunal: causa.tribunal,
+          estado: causa.estado,
+          etapa: causa.etapa,
+          materia: causa.materia,
+          fechaIngreso: causa.fechaIngreso,
+          fechaUltimoMovimiento: causa.fechaUltimoMovimiento,
+        },
+        analisis: {
+          nivelRiesgo,
+          factoresRiesgo,
+          tareasPendientes: tareasPendientes.length,
+          tareasVencidas: tareasVencidas.length,
+          alertasPendientes: alertasPendientes.length,
+        },
+        tareas: tareasPendientes.map((t) => ({
+          id: t.id, titulo: t.titulo, vencimiento: t.fechaVencimiento,
+          prioridad: t.prioridad, vencida: t.fechaVencimiento ? new Date(t.fechaVencimiento) < hoy : false,
+        })),
+        ultimoMovimiento: historialCrono.slice(0, 5).map((c) => ({
+          fecha: c.fecha, tipo: c.tipo, titulo: c.titulo, descripcion: c.descripcion?.slice(0, 200),
+        })),
+        notas: notasCausa.map((n) => ({
+          tipo: n.tipo, contenido: n.contenido.slice(0, 300), fecha: n.createdAt,
+        })),
+      });
+    }
+
     default:
       return JSON.stringify({ error: `Herramienta desconocida: ${name}` });
   }
@@ -441,13 +1237,18 @@ REGLAS:
 7. Cuando el usuario pida crear algo (tarea, alerta), usa la herramienta crear_tarea.
 8. Si necesitas calcular indemnización, pide los datos faltantes antes de usar la herramienta.
 9. Al dar cifras de indemnización, siempre menciona que es un cálculo estimativo y que debe verificarse.
-10. No generes documentos legales completos directamente; para eso existe el módulo Generador.
+10. Cuando el usuario pida generar un documento (carta, demanda, finiquito, recurso), usa generar_documento. Siempre advierte que requiere revisión profesional.
+11. Para preguntas sobre plazos o vencimientos, usa calcular_plazos. Siempre advierte sobre feriados no considerados en el cálculo.
+12. Para analizar una causa específica, usa analizar_causa. Combina con buscar_normativa si necesitas fundamentar recomendaciones.
 
 CAPACIDADES:
 - Consulta normativa (Código del Trabajo, leyes especiales)
 - Búsqueda de jurisprudencia
 - Gestión de causas, tareas, alertas
 - Cálculo de indemnizaciones (Art. 163 CT)
+- Generación de documentos legales (cartas, demandas, finiquitos, recursos)
+- Cálculo de plazos procesales (15 tipos de plazos laborales)
+- Análisis de riesgo por causa (tareas vencidas, alertas, inactividad)
 - Estado de cobranza y honorarios
 - Estado de denuncias Ley Karin
 - Monitoreo de Diario Oficial

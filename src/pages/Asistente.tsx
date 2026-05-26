@@ -28,6 +28,9 @@ const TOOL_LABELS: Record<string, string> = {
   estado_cobranza: "Cobranza",
   estado_leykarin: "Ley Karin",
   diario_oficial: "Diario Oficial",
+  generar_documento: "Documento",
+  calcular_plazos: "Plazos legales",
+  analizar_causa: "Análisis causa",
 };
 
 export default function Asistente() {
@@ -95,11 +98,11 @@ export default function Asistente() {
 
   const sugerencias = [
     "Art. 163 indemnización",
-    "Mis causas activas",
-    "Plazos vencidos",
+    "Genera carta de despido",
+    "Plazo para recurso de nulidad",
+    "Analiza mi causa más reciente",
     "Calcula indemnización 5 años, sueldo 800.000",
-    "Ley Karin",
-    "Estadísticas del estudio",
+    "Genera demanda de despido injustificado",
   ];
 
   return (
