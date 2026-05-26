@@ -6,6 +6,12 @@ import {
   documentosLegales, leykarinDenuncias, diarioOficialNormas,
 } from "@db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { calcularInteresMora } from "./lib/cobranza/intereses";
+import {
+  generarEstadoCuenta,
+  generarReporteCobranza,
+  generarCartaCobranza,
+} from "./lib/cobranza/reportes";
 
 // ─── INTENCIÓN DEL AGENTE ────────────────────────────────────────
 type Intencion = { tipo: string; confianza: number; params: Record<string, any> };
@@ -181,8 +187,8 @@ async function ejecutarEstadisticas() {
 
 async function ejecutarAyuda() {
   return {
-    mensaje: `**Soy LexTrack AI**, tu agente legal asistente especializado en derecho laboral chileno. Esto es lo que puedo hacer:\n\n**Crear y gestionar:**\n• "Crea tarea para revisar causa C-123 mañana"\n• "Crea alerta de plazo para la causa del señor González"\n\n**Buscar y analizar:**\n• "Busca causas de González" / "Dónde está la causa C-123"\n• "Analiza la causa del señor Pérez y dime qué falta"\n\n**Cálculos:**\n• "Calcula indemnización para 5 años, sueldo 800.000"\n• "Finiquito para 3 años y 6 meses, sueldo 1.200.000"\n\n**Consulta normativa (RAG):**\n• "Artículo 163 código del trabajo"\n• "Derechos del trabajador despedido"\n• "Desconexion digital"\n• "Ley Karin"\n\n**Análisis:**\n• "Estadísticas del estudio" / "Cómo vamos"\n• "Plazos vencidos" / "Próximos plazos"\n• "Estado de cobranza"`,
-    sugerencias: ["Mis tareas", "Estadísticas", "Plazos vencidos", "Calcular indemnización"],
+    mensaje: `**Soy LexTrack AI**, tu agente legal asistente especializado en derecho laboral chileno. Esto es lo que puedo hacer:\n\n**Crear y gestionar:**\n• "Crea tarea para revisar causa C-123 mañana"\n• "Crea alerta de plazo para la causa del señor González"\n\n**Buscar y analizar:**\n• "Busca causas de González" / "Dónde está la causa C-123"\n• "Analiza la causa del señor Pérez y dime qué falta"\n\n**Cálculos:**\n• "Calcula indemnización para 5 años, sueldo 800.000"\n• "Finiquito para 3 años y 6 meses, sueldo 1.200.000"\n\n**Cobranza y Honorarios:**\n• "Estado de cobranza" / "Cuánto me deben"\n• "Genera reporte de cobranza"\n• "Genera carta de cobranza para honorario #5"\n• "Calcula intereses moratorios"\n• "Estado de cuenta de cliente González"\n\n**Consulta normativa (RAG):**\n• "Artículo 163 código del trabajo"\n• "Derechos del trabajador despedido"\n• "Desconexion digital"\n• "Ley Karin"\n\n**Análisis:**\n• "Estadísticas del estudio" / "Cómo vamos"\n• "Plazos vencidos" / "Próximos plazos"`,
+    sugerencias: ["Mis tareas", "Estadísticas", "Plazos vencidos", "Calcular indemnización", "Reporte cobranza"],
   };
 }
 
@@ -298,5 +304,102 @@ export const agentRouter = createRouter({
       }
 
       return { intencion: intencion.tipo, confianza: intencion.confianza, ...resultado };
+    }),
+
+  // ─── Tool: generar_reporte_cobranza ──────────────────────────────
+  // Genera reportes de cobranza: estado de cuenta por cliente, reporte general, o carta de cobranza.
+  generarReporteCobranza: publicQuery
+    .input(
+      z.object({
+        tipo: z.enum(["estado_cuenta", "reporte_general", "carta_cobranza"]),
+        cliente: z.string().optional(),
+        honorarioId: z.number().optional(),
+        numeroCarta: z.number().min(1).max(3).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+
+      switch (input.tipo) {
+        case "estado_cuenta": {
+          if (!input.cliente) {
+            return { ok: false, mensaje: "Se requiere el nombre del cliente." };
+          }
+          const rows = await db
+            .select()
+            .from(honorarios)
+            .where(eq(honorarios.cliente, input.cliente))
+            .orderBy(desc(honorarios.createdAt));
+          if (rows.length === 0) {
+            return {
+              ok: false,
+              mensaje: `No se encontraron honorarios para el cliente "${input.cliente}".`,
+            };
+          }
+          const markdown = generarEstadoCuenta(input.cliente, rows);
+          return { ok: true, tipo: "estado_cuenta", markdown };
+        }
+        case "reporte_general": {
+          const todos = await db.select().from(honorarios);
+          const reporte = generarReporteCobranza(todos);
+          return { ok: true, tipo: "reporte_general", ...reporte };
+        }
+        case "carta_cobranza": {
+          if (!input.honorarioId) {
+            return { ok: false, mensaje: "Se requiere el ID del honorario." };
+          }
+          const rows = await db
+            .select()
+            .from(honorarios)
+            .where(eq(honorarios.id, input.honorarioId))
+            .limit(1);
+          if (rows.length === 0) {
+            return { ok: false, mensaje: "Honorario no encontrado." };
+          }
+          const numero = input.numeroCarta || 1;
+          const markdown = generarCartaCobranza(rows[0], numero);
+          return { ok: true, tipo: "carta_cobranza", numeroCarta: numero, markdown };
+        }
+        default:
+          return { ok: false, mensaje: "Tipo de reporte no reconocido." };
+      }
+    }),
+
+  // ─── Tool: calcular_intereses ────────────────────────────────────
+  // Calcula intereses por mora sobre honorarios vencidos segun tasa legal chilena.
+  calcularIntereses: publicQuery
+    .input(z.object({ honorarioId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(honorarios)
+        .where(eq(honorarios.id, input.honorarioId))
+        .limit(1);
+      if (rows.length === 0) {
+        return { ok: false, mensaje: "Honorario no encontrado." };
+      }
+      const h = rows[0];
+      if (!h.fechaVencimiento) {
+        return {
+          ok: true,
+          honorarioId: h.id,
+          cliente: h.cliente,
+          interes: null,
+          mensaje: "Sin fecha de vencimiento definida, no se calculan intereses.",
+        };
+      }
+      const interes = calcularInteresMora({
+        monto: h.monto,
+        montoPagado: h.montoPagado || 0,
+        fechaVencimiento: h.fechaVencimiento,
+      });
+      return {
+        ok: true,
+        honorarioId: h.id,
+        cliente: h.cliente,
+        concepto: h.concepto,
+        interes,
+      };
     }),
 });
