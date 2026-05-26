@@ -753,6 +753,37 @@ export const leykarinActuaciones = mysqlTable(
 
 export type LeykarinActuacion = typeof leykarinActuaciones.$inferSelect;
 
+// ─── Ley Karin Medidas Cautelares ───────────────────────────────
+export const leykarinMedidas = mysqlTable(
+  "leykarin_medidas",
+  {
+    id: serial("id").primaryKey(),
+    denunciaId: bigint("denunciaId", { mode: "number", unsigned: true }).notNull(),
+    tipo: mysqlEnum("tipo", [
+      "separacion_espacial",
+      "cambio_turno",
+      "reasignacion_funciones",
+      "permiso_preventivo",
+      "derivacion_psicologica",
+      "otra",
+    ]).notNull(),
+    descripcion: text("descripcion").notNull(),
+    fechaInicio: date("fechaInicio").notNull(),
+    fechaFin: date("fechaFin"),
+    estado: mysqlEnum("estado", ["activa", "finalizada", "revocada"])
+      .default("activa")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    denunciaIdx: index("lkmed_denuncia_idx").on(table.denunciaId),
+    estadoIdx: index("lkmed_estado_idx").on(table.estado),
+  })
+);
+
+export type LeykarinMedida = typeof leykarinMedidas.$inferSelect;
+export type InsertLeykarinMedida = typeof leykarinMedidas.$inferInsert;
+
 // ─── Honorarios y Cobranza ───────────────────────────────────────
 export const honorarios = mysqlTable(
   "honorarios",

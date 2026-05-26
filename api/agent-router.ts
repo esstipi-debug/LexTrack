@@ -4,9 +4,10 @@ import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
 import { consultarCausa, buscarPorRut } from "./lib/pjud/client";
 import { sincronizarCausa } from "./lib/pjud/sync";
+import { generarActaRecepcion, generarInformeFinal, generarNotificacionMedidas } from "./lib/karin/documentos";
 import {
   causas, tareas, alertas, honorarios, jurisprudencias,
-  documentosLegales, leykarinDenuncias, diarioOficialNormas,
+  documentosLegales, leykarinDenuncias, leykarinActuaciones, diarioOficialNormas,
   cronologia, notas,
 } from "@db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -249,6 +250,19 @@ const agentTools: AnthropicTool[] = [
         causa_id: { type: "number", description: "ID de la causa en LexTrack a sincronizar" },
       },
       required: ["causa_id"],
+    },
+  },
+  {
+    name: "generar_documento_karin",
+    description: "Genera documentos Ley Karin: acta de recepción de denuncia, informe final de investigación, o notificación de medidas cautelares. Usa esta herramienta cuando el usuario pida generar documentos relacionados con denuncias de acoso laboral, sexual o violencia en el trabajo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tipo: { type: "string", enum: ["acta_recepcion", "informe_final", "notificacion_medidas"], description: "Tipo de documento Ley Karin" },
+        denuncia_id: { type: "number", description: "ID de la denuncia Ley Karin" },
+        datos_adicionales: { type: "string", description: "Datos extra en JSON (empresa, investigador, medidas, conclusiones)" },
+      },
+      required: ["tipo", "denuncia_id"],
     },
   },
 ];
@@ -1241,6 +1255,77 @@ Firma juez: _________________________
           tipo: n.tipo, contenido: n.contenido.slice(0, 300), fecha: n.createdAt,
         })),
       });
+    }
+
+    case "generar_documento_karin": {
+      const tipo = String(input.tipo);
+      const denunciaId = Number(input.denuncia_id);
+      const datosStr = input.datos_adicionales ? String(input.datos_adicionales) : "{}";
+      let datos: Record<string, any> = {};
+      try { datos = JSON.parse(datosStr); } catch { /* ignore */ }
+
+      const [denuncia] = await db.select().from(leykarinDenuncias).where(eq(leykarinDenuncias.id, denunciaId));
+      if (!denuncia) return JSON.stringify({ error: `Denuncia ID ${denunciaId} no encontrada` });
+
+      const actuacionesRows = await db.select().from(leykarinActuaciones).where(eq(leykarinActuaciones.denunciaId, denunciaId));
+
+      let documento = "";
+      const hoyStr = new Date().toISOString().split("T")[0];
+      switch (tipo) {
+        case "acta_recepcion":
+          documento = generarActaRecepcion({
+            folio: denuncia.codigo,
+            fecha: String(denuncia.fechaRecepcion),
+            hora: datos.hora || "09:00",
+            empresa: datos.empresa || "Empresa",
+            denuncianteNombre: denuncia.denunciante || "Anónimo",
+            denuncianteRut: denuncia.rutDenunciante || "",
+            denuncianteCargo: denuncia.cargoDenunciante || "",
+            denunciadoNombre: denuncia.denunciado,
+            denunciadoCargo: denuncia.cargoDenunciado || "",
+            tipo: denuncia.tipo as any,
+            descripcionHechos: denuncia.descripcionHechos,
+            testigos: denuncia.testigos || undefined,
+            canalDenuncia: denuncia.modo,
+            receptor: datos.receptor || "Encargado/a de denuncias",
+            receptorCargo: datos.receptorCargo || "Encargado/a de prevención",
+          });
+          break;
+        case "informe_final":
+          documento = generarInformeFinal({
+            folio: denuncia.codigo,
+            empresa: datos.empresa || "Empresa",
+            fecha: hoyStr,
+            investigador: datos.investigador || denuncia.investigador || "Investigador designado",
+            investigadorCargo: datos.investigadorCargo || "Encargado/a de investigación",
+            denuncianteNombre: denuncia.denunciante || "Anónimo",
+            denunciadoNombre: denuncia.denunciado,
+            tipo: denuncia.tipo as any,
+            fechaRecepcion: String(denuncia.fechaRecepcion),
+            fechaInicioInvestigacion: String(denuncia.fechaInicioInvestigacion || denuncia.fechaRecepcion),
+            fechaCierre: datos.fechaCierre || hoyStr,
+            descripcionHechos: denuncia.descripcionHechos,
+            actuaciones: actuacionesRows.map(a => ({ fecha: String(a.fecha), tipo: a.tipo, descripcion: a.descripcion })),
+            hechosAcreditados: datos.hechosAcreditados || "Por determinar",
+            calificacionJuridica: datos.calificacionJuridica || "Por determinar",
+            conclusion: datos.conclusion || "acreditado",
+            medidasPropuestas: datos.medidasPropuestas || [],
+          } as any);
+          break;
+        case "notificacion_medidas":
+          documento = generarNotificacionMedidas({
+            folio: denuncia.codigo,
+            fecha: hoyStr,
+            empresa: datos.empresa || "Empresa",
+            representanteLegal: datos.representante || "Representante Legal",
+            denuncianteNombre: denuncia.denunciante || "Trabajador/a",
+            medidas: datos.medidas || [{ tipo: "separacion_espacial", descripcion: "Separación de espacios físicos" }],
+          } as any);
+          break;
+        default:
+          return JSON.stringify({ error: `Tipo de documento Karin no reconocido: ${tipo}` });
+      }
+      return JSON.stringify({ tipo, documento, denunciaId, advertencia: "Documento generado automáticamente. Requiere revisión profesional." });
     }
 
     case "consultar_pjud": {

@@ -2,13 +2,21 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
-import { leykarinDenuncias, leykarinActuaciones } from "@db/schema";
-import { eq, desc } from "drizzle-orm";
+import { leykarinDenuncias, leykarinActuaciones, leykarinMedidas } from "@db/schema";
+import { eq, desc, and, sql } from "drizzle-orm";
 import {
   generarProtocoloKarin,
   generarChecklistKarin,
   type EmpresaInput,
 } from "./lib/karin/protocolo";
+import {
+  generarActaRecepcion,
+  generarInformeFinal,
+  generarNotificacionMedidas,
+  type ActaRecepcionInput,
+  type InformeFinalInput,
+  type NotificacionMedidasInput,
+} from "./lib/karin/documentos";
 
 // ─── Types ──────────────────────────────────────────────────────
 type EstadoDenuncia = "recepcionada" | "evaluacion" | "investigacion" | "remitida_dt" | "archivada" | "concluida";
@@ -73,6 +81,15 @@ const empresaSchema = z.object({
   fechaVigencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
+const medidaTipoEnum = z.enum([
+  "separacion_espacial",
+  "cambio_turno",
+  "reasignacion_funciones",
+  "permiso_preventivo",
+  "derivacion_psicologica",
+  "otra",
+]);
+
 // ─── Helpers ────────────────────────────────────────────────────
 function calcularDiasRestantes(fechaRecepcion: string | Date, plazo: number): number {
   const recepcion = typeof fechaRecepcion === "string"
@@ -84,6 +101,10 @@ function calcularDiasRestantes(fechaRecepcion: string | Date, plazo: number): nu
   hoy.setHours(0, 0, 0, 0);
   const diff = limite.getTime() - hoy.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function toDateStr(v: string | Date): string {
+  return typeof v === "string" ? v : new Date(v).toISOString().split("T")[0];
 }
 
 // ─── Router ─────────────────────────────────────────────────────
@@ -284,6 +305,322 @@ export const leykarinRouter = createRouter({
         generadoEn: new Date().toISOString(),
       };
     }),
+
+  // ─── Document generators ────────────────────────────────────
+
+  generarActa: authedQuery
+    .input(z.object({
+      denunciaId: z.number(),
+      empresa: z.string().min(1),
+      hora: z.string().default("09:00"),
+      canalDenuncia: z.string().default("presencial"),
+      receptor: z.string().min(1),
+      receptorCargo: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const [denuncia] = await db
+        .select()
+        .from(leykarinDenuncias)
+        .where(eq(leykarinDenuncias.id, input.denunciaId));
+
+      if (!denuncia) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
+      }
+
+      const actaInput: ActaRecepcionInput = {
+        folio: denuncia.codigo,
+        fecha: toDateStr(denuncia.fechaRecepcion),
+        hora: input.hora,
+        empresa: input.empresa,
+        denuncianteNombre: denuncia.denunciante || "Anónimo",
+        denuncianteRut: denuncia.rutDenunciante || "—",
+        denuncianteCargo: denuncia.cargoDenunciante || "—",
+        denunciadoNombre: denuncia.denunciado,
+        denunciadoCargo: denuncia.cargoDenunciado || "—",
+        tipo: denuncia.tipo as ActaRecepcionInput["tipo"],
+        descripcionHechos: denuncia.descripcionHechos,
+        testigos: denuncia.testigos || undefined,
+        canalDenuncia: input.canalDenuncia,
+        receptor: input.receptor,
+        receptorCargo: input.receptorCargo,
+      };
+
+      return {
+        documento: generarActaRecepcion(actaInput),
+        folio: denuncia.codigo,
+        generadoEn: new Date().toISOString(),
+      };
+    }),
+
+  generarInforme: authedQuery
+    .input(z.object({
+      denunciaId: z.number(),
+      empresa: z.string().min(1),
+      investigador: z.string().min(1),
+      investigadorCargo: z.string().min(1),
+      fechaCierre: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      hechosAcreditados: z.string().min(1),
+      calificacionJuridica: z.string().min(1),
+      conclusion: z.enum(["acreditado", "no_acreditado", "parcialmente_acreditado"]),
+      fundamentoConclusion: z.string().min(1),
+      medidasPropuestas: z.array(z.string()).default([]),
+      sancionesPropuestas: z.array(z.string()).default([]),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const [denuncia] = await db
+        .select()
+        .from(leykarinDenuncias)
+        .where(eq(leykarinDenuncias.id, input.denunciaId));
+
+      if (!denuncia) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
+      }
+
+      const actuaciones = await db
+        .select()
+        .from(leykarinActuaciones)
+        .where(eq(leykarinActuaciones.denunciaId, input.denunciaId))
+        .orderBy(leykarinActuaciones.fecha);
+
+      const informeInput: InformeFinalInput = {
+        folio: denuncia.codigo,
+        empresa: input.empresa,
+        fecha: input.fechaCierre,
+        investigador: input.investigador,
+        investigadorCargo: input.investigadorCargo,
+        denuncianteNombre: denuncia.denunciante || "Anónimo",
+        denuncianteRut: denuncia.rutDenunciante || undefined,
+        denuncianteCargo: denuncia.cargoDenunciante || undefined,
+        denunciadoNombre: denuncia.denunciado,
+        denunciadoRut: denuncia.rutDenunciado || undefined,
+        denunciadoCargo: denuncia.cargoDenunciado || undefined,
+        tipo: denuncia.tipo as InformeFinalInput["tipo"],
+        fechaRecepcion: toDateStr(denuncia.fechaRecepcion),
+        fechaInicioInvestigacion: denuncia.fechaInicioInvestigacion
+          ? toDateStr(denuncia.fechaInicioInvestigacion)
+          : toDateStr(denuncia.fechaRecepcion),
+        fechaCierre: input.fechaCierre,
+        descripcionHechos: denuncia.descripcionHechos,
+        actuaciones: actuaciones.map((a) => ({
+          fecha: toDateStr(a.fecha),
+          tipo: a.tipo,
+          descripcion: a.descripcion,
+          actor: a.actor || undefined,
+        })),
+        hechosAcreditados: input.hechosAcreditados,
+        calificacionJuridica: input.calificacionJuridica,
+        conclusion: input.conclusion,
+        fundamentoConclusion: input.fundamentoConclusion,
+        medidasPropuestas: input.medidasPropuestas,
+        sancionesPropuestas: input.sancionesPropuestas,
+      };
+
+      return {
+        documento: generarInformeFinal(informeInput),
+        folio: denuncia.codigo,
+        generadoEn: new Date().toISOString(),
+      };
+    }),
+
+  generarNotificacionMedidas: authedQuery
+    .input(z.object({
+      denunciaId: z.number(),
+      empresa: z.string().min(1),
+      representanteLegal: z.string().min(1),
+      medidas: z.array(z.object({
+        tipo: z.string().min(1),
+        descripcion: z.string().min(1),
+      })).min(1),
+      fechaInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      fundamentoLegal: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const [denuncia] = await db
+        .select()
+        .from(leykarinDenuncias)
+        .where(eq(leykarinDenuncias.id, input.denunciaId));
+
+      if (!denuncia) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
+      }
+
+      const notifInput: NotificacionMedidasInput = {
+        folio: denuncia.codigo,
+        fecha: input.fechaInicio,
+        empresa: input.empresa,
+        representanteLegal: input.representanteLegal,
+        denuncianteNombre: denuncia.denunciante || "Anónimo",
+        denuncianteRut: denuncia.rutDenunciante || undefined,
+        denuncianteCargo: denuncia.cargoDenunciante || undefined,
+        medidas: input.medidas,
+        fechaInicio: input.fechaInicio,
+        fundamentoLegal: input.fundamentoLegal,
+      };
+
+      return {
+        documento: generarNotificacionMedidas(notifInput),
+        folio: denuncia.codigo,
+        generadoEn: new Date().toISOString(),
+      };
+    }),
+
+  // ─── Medidas cautelares CRUD ──────────────────────────────────
+
+  agregarMedida: authedQuery
+    .input(z.object({
+      denunciaId: z.number(),
+      tipo: medidaTipoEnum,
+      descripcion: z.string().min(1),
+      fechaInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      fechaFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      await db.insert(leykarinMedidas).values({
+        denunciaId: input.denunciaId,
+        tipo: input.tipo,
+        descripcion: input.descripcion,
+        fechaInicio: input.fechaInicio,
+        fechaFin: input.fechaFin || null,
+        estado: "activa",
+      } as any);
+      return { ok: true };
+    }),
+
+  listarMedidas: authedQuery
+    .input(z.object({ denunciaId: z.number() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      return db
+        .select()
+        .from(leykarinMedidas)
+        .where(eq(leykarinMedidas.denunciaId, input.denunciaId))
+        .orderBy(desc(leykarinMedidas.createdAt));
+    }),
+
+  finalizarMedida: authedQuery
+    .input(z.object({
+      id: z.number(),
+      fechaFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const fechaFin = input.fechaFin ? new Date(input.fechaFin) : new Date();
+      await db
+        .update(leykarinMedidas)
+        .set({ estado: "finalizada" as any, fechaFin })
+        .where(eq(leykarinMedidas.id, input.id));
+      return { ok: true };
+    }),
+
+  // ─── Alertas automáticas de plazos ────────────────────────────
+
+  alertasAutomaticas: authedQuery.query(async () => {
+    const db = getDb();
+    const denuncias = await db
+      .select()
+      .from(leykarinDenuncias)
+      .where(
+        sql`${leykarinDenuncias.estado} IN ('recepcionada', 'evaluacion', 'investigacion')`
+      );
+
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    const alertas: {
+      denunciaId: number;
+      codigo: string;
+      tipo: string;
+      mensaje: string;
+      diasRestantes: number;
+      vencido: boolean;
+    }[] = [];
+
+    for (const d of denuncias) {
+      const fechaRecepcion = new Date(
+        typeof d.fechaRecepcion === "string"
+          ? d.fechaRecepcion + "T00:00:00"
+          : d.fechaRecepcion
+      );
+
+      // 1. Investigation deadline: 30 days from reception
+      const plazoInvestigacion = new Date(fechaRecepcion);
+      plazoInvestigacion.setDate(plazoInvestigacion.getDate() + 30);
+      const diasInvestigacion = Math.ceil(
+        (plazoInvestigacion.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (diasInvestigacion <= 10) {
+        alertas.push({
+          denunciaId: d.id,
+          codigo: d.codigo,
+          tipo: "plazo_investigacion",
+          mensaje: diasInvestigacion <= 0
+            ? `VENCIDO: Plazo de investigación (30 días) vencido hace ${Math.abs(diasInvestigacion)} día(s)`
+            : `Quedan ${diasInvestigacion} día(s) para concluir la investigación (plazo 30 días)`,
+          diasRestantes: diasInvestigacion,
+          vencido: diasInvestigacion <= 0,
+        });
+      }
+
+      // 2. Medidas cautelares deadline: 3 days from reception
+      if (d.estado === "recepcionada" || d.estado === "evaluacion") {
+        const plazoMedidas = new Date(fechaRecepcion);
+        plazoMedidas.setDate(plazoMedidas.getDate() + 3);
+        const diasMedidas = Math.ceil(
+          (plazoMedidas.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (diasMedidas <= 3) {
+          alertas.push({
+            denunciaId: d.id,
+            codigo: d.codigo,
+            tipo: "plazo_medidas_cautelares",
+            mensaje: diasMedidas <= 0
+              ? `VENCIDO: Plazo para adoptar medidas cautelares (3 días) vencido hace ${Math.abs(diasMedidas)} día(s)`
+              : `Quedan ${diasMedidas} día(s) para adoptar medidas cautelares (plazo 3 días)`,
+            diasRestantes: diasMedidas,
+            vencido: diasMedidas <= 0,
+          });
+        }
+      }
+
+      // 3. Sanction application deadline: 15 days from informe (fechaResolucion)
+      if (d.fechaResolucion) {
+        const fechaResolucion = new Date(
+          typeof d.fechaResolucion === "string"
+            ? d.fechaResolucion + "T00:00:00"
+            : d.fechaResolucion
+        );
+        const plazoSancion = new Date(fechaResolucion);
+        plazoSancion.setDate(plazoSancion.getDate() + 15);
+        const diasSancion = Math.ceil(
+          (plazoSancion.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (diasSancion <= 10) {
+          alertas.push({
+            denunciaId: d.id,
+            codigo: d.codigo,
+            tipo: "plazo_sancion",
+            mensaje: diasSancion <= 0
+              ? `VENCIDO: Plazo para aplicar sanciones (15 días desde informe) vencido hace ${Math.abs(diasSancion)} día(s)`
+              : `Quedan ${diasSancion} día(s) para aplicar sanciones (plazo 15 días desde informe)`,
+            diasRestantes: diasSancion,
+            vencido: diasSancion <= 0,
+          });
+        }
+      }
+    }
+
+    // Sort: vencidos first, then by remaining days ascending
+    alertas.sort((a, b) => {
+      if (a.vencido !== b.vencido) return a.vencido ? -1 : 1;
+      return a.diasRestantes - b.diasRestantes;
+    });
+
+    return alertas;
+  }),
 
   estadisticas: authedQuery.query(async () => {
     const db = getDb();
