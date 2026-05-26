@@ -6,6 +6,7 @@ import {
   documentosLegales, leykarinDenuncias, diarioOficialNormas,
 } from "@db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { getUFActual } from "./lib/uf";
 
 // ─── INTENCIÓN DEL AGENTE ────────────────────────────────────────
 type Intencion = { tipo: string; confianza: number; params: Record<string, any> };
@@ -101,7 +102,8 @@ function clasificarIntencion(mensaje: string): Intencion {
 
 // ─── EJECUTORES ──────────────────────────────────────────────────
 async function ejecutarCalcularIndemnizacion(params: Record<string, any>) {
-  const UF_VALUE = 37200;
+  const uf = await getUFActual();
+  const UF_VALUE = uf.valor;
   const TOPE_REMUNERACION = 90 * UF_VALUE;
   const TOPE_DIAS = 330;
 
@@ -146,6 +148,9 @@ async function ejecutarCalcularIndemnizacion(params: Record<string, any>) {
         total: Math.round(total),
         articuloBase: "Art. 163 CT",
         formula: `${totalAnios} años × 30 días = ${diasIndemnizacion} días × $${Math.round(remCalc / 30)}/día`,
+        ufValor: UF_VALUE,
+        ufFecha: uf.fecha,
+        ufFuente: uf.fuente,
       },
     },
     sugerencias: ["Generar carta de despido", "Generar demanda", "Guardar cálculo"],

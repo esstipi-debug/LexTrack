@@ -3,6 +3,7 @@ import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { documentosLegales } from "@db/schema";
 import { sql } from "drizzle-orm";
+import { getUFActual, getUFSync } from "./lib/uf";
 
 function scoreDocument(query: string, doc: { titulo: string; contenido: string; etiquetas: string | null }): number {
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
@@ -46,7 +47,8 @@ export const generadorRouter = createRouter({
     }))
     .mutation(async ({ input }) => {
       const { datos } = input;
-      const ctx = await recuperarContexto(input.templateId);
+      const [ctx, uf] = await Promise.all([recuperarContexto(input.templateId), getUFActual()]);
+      const UF_VALUE = uf.valor;
 
       switch (input.templateId) {
         case "carta_aviso_despido":
@@ -119,7 +121,8 @@ III. CÁLCULO DE INDEMNIZACION
 - Anos de servicio: ${datos.anios || "[X]"}
 - Remuneracion: $${datos.remuneracion?.toLocaleString("es-CL") || "[MONTO]"} (tope: 90 UF)
 - Dias indemnizacion: ${Math.min((datos.anios || 0) * 30, 330)} dias
-- Monto: $${Math.round((Math.min((datos.anios || 0) * 30, 330) / 30) * Math.min(datos.remuneracion || 0, 90 * 37200)).toLocaleString("es-CL")}
+- Monto: $${Math.round((Math.min((datos.anios || 0) * 30, 330) / 30) * Math.min(datos.remuneracion || 0, 90 * UF_VALUE)).toLocaleString("es-CL")}
+- Valor UF usado: $${UF_VALUE.toLocaleString("es-CL")} (${uf.fuente}, ${uf.fecha})
 
 POR TANTO: RUEGO A U.S. acceder a lo solicitado.
 
@@ -140,8 +143,9 @@ Abogado patrocinante`,
       sueldo: z.number(),
       avisoPrevio: z.boolean().optional(),
     }))
-    .mutation(({ input }) => {
-      const UF_VALUE = 37200;
+    .mutation(async ({ input }) => {
+      const uf = await getUFActual();
+      const UF_VALUE = uf.valor;
       const TOPE_REM = 90 * UF_VALUE;
       const TOPE_DIAS = 330;
 
@@ -159,6 +163,9 @@ Abogado patrocinante`,
         proporcionalFeriado: Math.round(remCalc / 30),
         total: Math.round(montoIndem + aviso + (remCalc / 30) * 1.25 + remCalc / 30),
         topeAplicado: input.sueldo > TOPE_REM,
+        ufValor: UF_VALUE,
+        ufFecha: uf.fecha,
+        ufFuente: uf.fuente,
       };
     }),
 });
