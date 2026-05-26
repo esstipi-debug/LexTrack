@@ -77,7 +77,7 @@ export const leykarinRouter = createRouter({
     .input(z.object({ id: z.number(), estado: z.string() }))
     .mutation(async ({ input }) => {
       const db = getDb();
-      await db.update(leykarinDenuncias).set({ estado: input.estado }).where(eq(leykarinDenuncias.id, input.id));
+      await db.update(leykarinDenuncias).set({ estado: input.estado as "concluida" | "archivada" | "recepcionada" | "evaluacion" | "investigacion" | "remitida_dt" }).where(eq(leykarinDenuncias.id, input.id));
       return { ok: true };
     }),
 
@@ -94,7 +94,7 @@ export const leykarinRouter = createRouter({
       await db.insert(leykarinActuaciones).values({
         denunciaId: input.denunciaId,
         fecha: new Date(input.fecha),
-        tipo: input.tipo,
+        tipo: input.tipo as "recepcion" | "evaluacion" | "entrevista" | "investigacion" | "evidencia" | "remision_dt" | "archivo" | "resolucion" | "apelacion",
         descripcion: input.descripcion,
         actor: input.actor || null,
       });

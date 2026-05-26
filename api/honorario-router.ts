@@ -21,10 +21,11 @@ export const honorarioRouter = createRouter({
     }))
     .mutation(async ({ input }) => {
       const db = getDb();
+      const { fechaVencimiento, ...rest } = input;
       const [result] = await db.insert(honorarios).values({
-        ...input,
-        fechaVencimiento: input.fechaVencimiento || null,
-      }).$returningId();
+        ...rest,
+        fechaVencimiento: fechaVencimiento ? new Date(fechaVencimiento) : null,
+      } as any).$returningId();
       return result;
     }),
 

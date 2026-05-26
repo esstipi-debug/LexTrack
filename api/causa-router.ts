@@ -50,7 +50,7 @@ export const causaRouter = createRouter({
     }),
 
   actualizar: publicQuery
-    .input(z.object({ id: z.number(), datos: z.record(z.any()) }))
+    .input(z.object({ id: z.number(), datos: z.record(z.string(), z.any()) }))
     .mutation(async ({ input }) => {
       const db = getDb();
       await db.update(causas).set(input.datos).where(eq(causas.id, input.id));

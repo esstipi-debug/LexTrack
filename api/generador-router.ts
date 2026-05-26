@@ -41,7 +41,7 @@ export const generadorRouter = createRouter({
   generar: publicQuery
     .input(z.object({
       templateId: z.string(),
-      datos: z.record(z.any()),
+      datos: z.record(z.string(), z.any()),
       causaId: z.number().optional(),
     }))
     .mutation(async ({ input }) => {

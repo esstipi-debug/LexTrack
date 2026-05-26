@@ -21,11 +21,11 @@ export const tareaRouter = createRouter({
     }))
     .mutation(async ({ input }) => {
       const db = getDb();
+      const { fechaVencimiento, ...rest } = input;
       const [result] = await db.insert(tareas).values({
-        ...input,
-        causaId: input.causaId || null,
-        fechaVencimiento: input.fechaVencimiento || null,
-      }).$returningId();
+        ...rest,
+        fechaVencimiento: fechaVencimiento ? new Date(fechaVencimiento) : null,
+      } as any).$returningId();
       return result;
     }),
 
