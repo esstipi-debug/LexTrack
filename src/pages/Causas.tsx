@@ -1,10 +1,9 @@
 import { trpc } from "@/providers/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Gavel, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
-import { Link } from "react-router";
 
 export default function Causas() {
   const { data: causas, isLoading } = trpc.causa.listar.useQuery();
@@ -59,7 +58,7 @@ export default function Causas() {
                     </div>
                     <h3 className="font-medium text-gray-900 dark:text-white">{c.caratula}</h3>
                     <p className="text-sm text-gray-500">{c.tribunal} {c.comuna && `- ${c.comuna}`}</p>
-                    <p className="text-xs text-gray-400 mt-1">Materia: {c.materia} | Ingreso: {c.fechaIngreso}</p>
+                    <p className="text-xs text-gray-400 mt-1">Materia: {c.materia} | Ingreso: {c.fechaIngreso instanceof Date ? c.fechaIngreso.toLocaleDateString("es-CL") : c.fechaIngreso}</p>
                   </div>
                 </div>
               </CardContent>

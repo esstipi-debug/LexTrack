@@ -94,7 +94,7 @@ export default function LeyKarin() {
                       Denunciante: {d.denunciante || "Anónimo"} | Denunciado: {d.denunciado}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {tipoLabel[d.tipo] || d.tipo} | {d.area} | Recepción: {d.fechaRecepcion}
+                      {tipoLabel[d.tipo] || d.tipo} | {d.area} | Recepción: {d.fechaRecepcion instanceof Date ? d.fechaRecepcion.toLocaleDateString("es-CL") : d.fechaRecepcion}
                     </p>
                   </div>
                 </div>

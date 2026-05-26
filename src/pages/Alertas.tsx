@@ -48,7 +48,7 @@ export default function Alertas() {
                   <p className="text-sm text-gray-500">{a.descripcion}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs text-gray-400">{tipoLabel[a.tipo] || a.tipo}</span>
-                    {a.fechaVencimiento && <span className="text-xs text-red-400">Vence: {a.fechaVencimiento}</span>}
+                    {a.fechaVencimiento && <span className="text-xs text-red-400">Vence: {a.fechaVencimiento instanceof Date ? a.fechaVencimiento.toLocaleDateString("es-CL") : a.fechaVencimiento}</span>}
                   </div>
                 </div>
                 {a.estado === "pendiente" && (

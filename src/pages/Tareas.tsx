@@ -49,7 +49,7 @@ export default function Tareas() {
                   <div className="flex items-center gap-2 mt-1">
                     <Badge className={prioridadColor[t.prioridad] || "bg-gray-100"}>{t.prioridad}</Badge>
                     {t.fechaVencimiento && (
-                      <span className="text-xs text-gray-400">Vence: {t.fechaVencimiento}</span>
+                      <span className="text-xs text-gray-400">Vence: {t.fechaVencimiento instanceof Date ? t.fechaVencimiento.toLocaleDateString("es-CL") : t.fechaVencimiento}</span>
                     )}
                   </div>
                 </div>

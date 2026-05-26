@@ -2,7 +2,6 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Scale, Search, Gavel } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
@@ -58,9 +57,11 @@ export default function Jurisprudencia() {
                 </div>
               )}
               <div className="text-sm text-gray-600 dark:text-gray-400 max-h-32 overflow-hidden">
-                <ReactMarkdown className="prose prose-sm dark:prose-invert max-w-none">
-                  {j.contenido.substring(0, 500) + "..."}
-                </ReactMarkdown>
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown>
+                    {j.contenido.substring(0, 500) + "..."}
+                  </ReactMarkdown>
+                </div>
               </div>
               {j.normasAplicadas && (
                 <div className="mt-3 flex flex-wrap gap-1">
