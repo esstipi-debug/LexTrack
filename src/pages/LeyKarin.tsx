@@ -1,8 +1,28 @@
 import { Link } from "react-router";
+import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Shield,
   AlertTriangle,
@@ -13,6 +33,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRight,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -166,6 +187,54 @@ export default function LeyKarin() {
     },
   });
 
+  const today = new Date().toISOString().split("T")[0];
+  const year = new Date().getFullYear();
+
+  const [crearOpen, setCrearOpen] = useState(false);
+  const [nuevoCodigo, setNuevoCodigo] = useState(`LK-${year}-001`);
+  const [nuevoFechaRecepcion, setNuevoFechaRecepcion] = useState(today);
+  const [nuevoTipo, setNuevoTipo] = useState("acoso_laboral");
+  const [nuevoDenunciante, setNuevoDenunciante] = useState("");
+  const [nuevoDenunciado, setNuevoDenunciado] = useState("");
+  const [nuevoDescripcionHechos, setNuevoDescripcionHechos] = useState("");
+  const [nuevoPrioridad, setNuevoPrioridad] = useState("media");
+
+  const crearDenuncia = trpc.leykarin.crear.useMutation({
+    onSuccess: () => {
+      utils.leykarin.listar.invalidate();
+      utils.leykarin.dashboard.invalidate();
+      setCrearOpen(false);
+      resetCrearForm();
+      toast.success("Denuncia creada exitosamente");
+    },
+    onError: (err) => {
+      toast.error("Error al crear denuncia: " + err.message);
+    },
+  });
+
+  function resetCrearForm() {
+    setNuevoCodigo(`LK-${year}-001`);
+    setNuevoFechaRecepcion(today);
+    setNuevoTipo("acoso_laboral");
+    setNuevoDenunciante("");
+    setNuevoDenunciado("");
+    setNuevoDescripcionHechos("");
+    setNuevoPrioridad("media");
+  }
+
+  function handleCrearSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    crearDenuncia.mutate({
+      codigo: nuevoCodigo,
+      fechaRecepcion: nuevoFechaRecepcion,
+      tipo: nuevoTipo,
+      denunciante: nuevoDenunciante || undefined,
+      denunciado: nuevoDenunciado,
+      descripcionHechos: nuevoDescripcionHechos,
+      prioridad: nuevoPrioridad,
+    });
+  }
+
   const estadosActivos: EstadoDenuncia[] = ["recepcionada", "evaluacion", "investigacion", "remitida_dt"];
 
   return (
@@ -176,13 +245,89 @@ export default function LeyKarin() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ley Karin - Ley 21.643</h1>
           <p className="text-gray-500">Gestion de denuncias de acoso laboral, sexual y violencia</p>
         </div>
-        <Button asChild>
-          <Link to="/ley-karin/protocolo">
-            <FileText className="w-4 h-4 mr-2" />
-            Generar protocolo para cliente
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Dialog open={crearOpen} onOpenChange={(v) => { setCrearOpen(v); if (!v) resetCrearForm(); }}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="w-4 h-4 mr-2" />
+                Nueva Denuncia
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Nueva Denuncia Ley Karin</DialogTitle>
+                <DialogDescription>Registre una nueva denuncia bajo Ley 21.643.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCrearSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="nuevoCodigo">Código *</Label>
+                    <Input id="nuevoCodigo" value={nuevoCodigo} onChange={(e) => setNuevoCodigo(e.target.value)} placeholder="LK-2026-001" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="nuevoFechaRecepcion">Fecha de Recepción *</Label>
+                    <Input id="nuevoFechaRecepcion" type="date" value={nuevoFechaRecepcion} onChange={(e) => setNuevoFechaRecepcion(e.target.value)} required />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Tipo</Label>
+                    <Select value={nuevoTipo} onValueChange={setNuevoTipo}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="acoso_laboral">Acoso laboral</SelectItem>
+                        <SelectItem value="acoso_sexual">Acoso sexual</SelectItem>
+                        <SelectItem value="violencia_laboral">Violencia laboral</SelectItem>
+                        <SelectItem value="discriminacion">Discriminación</SelectItem>
+                        <SelectItem value="otro">Otro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Prioridad</Label>
+                    <Select value={nuevoPrioridad} onValueChange={setNuevoPrioridad}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="baja">Baja</SelectItem>
+                        <SelectItem value="media">Media</SelectItem>
+                        <SelectItem value="alta">Alta</SelectItem>
+                        <SelectItem value="critica">Crítica</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoDenunciante">Denunciante (dejar vacío para anónimo)</Label>
+                  <Input id="nuevoDenunciante" value={nuevoDenunciante} onChange={(e) => setNuevoDenunciante(e.target.value)} placeholder="Nombre del denunciante" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoDenunciado">Denunciado *</Label>
+                  <Input id="nuevoDenunciado" value={nuevoDenunciado} onChange={(e) => setNuevoDenunciado(e.target.value)} placeholder="Nombre del denunciado" required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoDescripcionHechos">Descripción de los Hechos *</Label>
+                  <Textarea id="nuevoDescripcionHechos" value={nuevoDescripcionHechos} onChange={(e) => setNuevoDescripcionHechos(e.target.value)} placeholder="Describa los hechos denunciados..." required rows={4} />
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={crearDenuncia.isPending}>
+                    {crearDenuncia.isPending ? "Creando..." : "Crear Denuncia"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <Button asChild>
+            <Link to="/ley-karin/protocolo">
+              <FileText className="w-4 h-4 mr-2" />
+              Generar protocolo para cliente
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}

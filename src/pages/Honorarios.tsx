@@ -3,11 +3,15 @@ import { trpc } from "@/providers/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -31,6 +35,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Clock,
+  Plus,
 } from "lucide-react";
 
 export default function Honorarios() {
@@ -38,6 +43,46 @@ export default function Honorarios() {
   const { data: stats } = trpc.honorario.estadisticas.useQuery();
   const { data: agingData } = trpc.honorario.aging.useQuery();
   const { data: resumenMensual } = trpc.honorario.resumenMensual.useQuery();
+  const utils = trpc.useUtils();
+
+  const [crearOpen, setCrearOpen] = useState(false);
+  const [nuevoCliente, setNuevoCliente] = useState("");
+  const [nuevoConcepto, setNuevoConcepto] = useState("");
+  const [nuevoMonto, setNuevoMonto] = useState("");
+  const [nuevoTipo, setNuevoTipo] = useState("honorario");
+  const [nuevoFechaVencimiento, setNuevoFechaVencimiento] = useState("");
+
+  const crearHonorario = trpc.honorario.crear.useMutation({
+    onSuccess: () => {
+      utils.honorario.listar.invalidate();
+      utils.honorario.estadisticas.invalidate();
+      setCrearOpen(false);
+      resetCrearForm();
+      toast.success("Honorario creado exitosamente");
+    },
+    onError: (err) => {
+      toast.error("Error al crear honorario: " + err.message);
+    },
+  });
+
+  function resetCrearForm() {
+    setNuevoCliente("");
+    setNuevoConcepto("");
+    setNuevoMonto("");
+    setNuevoTipo("honorario");
+    setNuevoFechaVencimiento("");
+  }
+
+  function handleCrearSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    crearHonorario.mutate({
+      cliente: nuevoCliente,
+      concepto: nuevoConcepto,
+      monto: Number(nuevoMonto),
+      tipo: nuevoTipo,
+      fechaVencimiento: nuevoFechaVencimiento || undefined,
+    });
+  }
 
   const [interesDialogOpen, setInteresDialogOpen] = useState(false);
   const [selectedHonorarioId, setSelectedHonorarioId] = useState<number | null>(null);
@@ -95,13 +140,69 @@ export default function Honorarios() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Honorarios y Cobranza
-        </h1>
-        <p className="text-gray-500">
-          Gestion de honorarios, intereses y estado de cobranza
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Honorarios y Cobranza
+          </h1>
+          <p className="text-gray-500">
+            Gestion de honorarios, intereses y estado de cobranza
+          </p>
+        </div>
+        <Dialog open={crearOpen} onOpenChange={(v) => { setCrearOpen(v); if (!v) resetCrearForm(); }}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="w-4 h-4 mr-2" />
+              Nuevo Honorario
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Nuevo Honorario</DialogTitle>
+              <DialogDescription>Ingrese los datos del nuevo honorario.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleCrearSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="nuevoCliente">Cliente *</Label>
+                <Input id="nuevoCliente" value={nuevoCliente} onChange={(e) => setNuevoCliente(e.target.value)} placeholder="Nombre del cliente" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="nuevoConcepto">Concepto *</Label>
+                <Input id="nuevoConcepto" value={nuevoConcepto} onChange={(e) => setNuevoConcepto(e.target.value)} placeholder="Descripción del concepto" required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="nuevoMonto">Monto (CLP) *</Label>
+                  <Input id="nuevoMonto" type="number" value={nuevoMonto} onChange={(e) => setNuevoMonto(e.target.value)} placeholder="0" required min={0} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tipo</Label>
+                  <Select value={nuevoTipo} onValueChange={setNuevoTipo}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="honorario">Honorario</SelectItem>
+                      <SelectItem value="gasto">Gasto</SelectItem>
+                      <SelectItem value="tasa">Tasa</SelectItem>
+                      <SelectItem value="consulta">Consulta</SelectItem>
+                      <SelectItem value="retencion">Retención</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="nuevoFechaVencimiento">Fecha de Vencimiento</Label>
+                <Input id="nuevoFechaVencimiento" type="date" value={nuevoFechaVencimiento} onChange={(e) => setNuevoFechaVencimiento(e.target.value)} />
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={crearHonorario.isPending}>
+                  {crearHonorario.isPending ? "Creando..." : "Crear Honorario"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Stats Cards */}
