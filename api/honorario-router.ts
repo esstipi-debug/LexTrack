@@ -1,16 +1,22 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { honorarios } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
+import { calcularInteresMora } from "./lib/cobranza/intereses";
+import {
+  generarEstadoCuenta,
+  generarReporteCobranza,
+  generarCartaCobranza,
+} from "./lib/cobranza/reportes";
 
 export const honorarioRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(honorarios).orderBy(desc(honorarios.createdAt));
   }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(z.object({
       cliente: z.string(),
       concepto: z.string(),
@@ -21,14 +27,16 @@ export const honorarioRouter = createRouter({
     }))
     .mutation(async ({ input }) => {
       const db = getDb();
-      const [result] = await db.insert(honorarios).values({
-        ...input,
-        fechaVencimiento: input.fechaVencimiento || null,
-      }).$returningId();
+      const { fechaVencimiento, ...rest } = input;
+      const values: any = {
+        ...rest,
+        fechaVencimiento: fechaVencimiento ? new Date(fechaVencimiento) : null,
+      };
+      const [result] = await db.insert(honorarios).values(values).$returningId();
       return result;
     }),
 
-  registrarPago: publicQuery
+  registrarPago: authedQuery
     .input(z.object({ id: z.number(), monto: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -40,7 +48,7 @@ export const honorarioRouter = createRouter({
       return { ok: true };
     }),
 
-  estadisticas: publicQuery.query(async () => {
+  estadisticas: authedQuery.query(async () => {
     const db = getDb();
     const todos = await db.select().from(honorarios);
     const totalFacturado = todos.reduce((a, h) => a + h.monto, 0);
@@ -53,5 +61,170 @@ export const honorarioRouter = createRouter({
       totalDocumentos: todos.length,
       pendientes: pendientes.length,
     };
+  }),
+
+  // ─── Cobranza: Calcular intereses ────────────────────────────────
+  calcularIntereses: authedQuery
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(honorarios)
+        .where(eq(honorarios.id, input.id))
+        .limit(1);
+      if (rows.length === 0) return null;
+      const h = rows[0];
+      if (!h.fechaVencimiento) {
+        return {
+          honorarioId: h.id,
+          cliente: h.cliente,
+          concepto: h.concepto,
+          interes: null,
+          mensaje: "Sin fecha de vencimiento definida",
+        };
+      }
+      const interes = calcularInteresMora({
+        monto: h.monto,
+        montoPagado: h.montoPagado || 0,
+        fechaVencimiento: h.fechaVencimiento,
+      });
+      return {
+        honorarioId: h.id,
+        cliente: h.cliente,
+        concepto: h.concepto,
+        interes,
+      };
+    }),
+
+  // ─── Cobranza: Estado de cuenta por cliente ─────────────────────
+  estadoCuenta: authedQuery
+    .input(z.object({ cliente: z.string() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(honorarios)
+        .where(eq(honorarios.cliente, input.cliente))
+        .orderBy(desc(honorarios.createdAt));
+      const markdown = generarEstadoCuenta(input.cliente, rows);
+      return { cliente: input.cliente, total: rows.length, markdown };
+    }),
+
+  // ─── Cobranza: Reporte general ──────────────────────────────────
+  reporteCobranza: authedQuery.query(async () => {
+    const db = getDb();
+    const todos = await db.select().from(honorarios);
+    return generarReporteCobranza(todos);
+  }),
+
+  // ─── Cobranza: Carta de cobranza ────────────────────────────────
+  generarCartaCobranza: authedQuery
+    .input(z.object({ id: z.number(), numero: z.number().min(1).max(3) }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(honorarios)
+        .where(eq(honorarios.id, input.id))
+        .limit(1);
+      if (rows.length === 0) return null;
+      const markdown = generarCartaCobranza(rows[0], input.numero);
+      return {
+        honorarioId: input.id,
+        numeroCarta: input.numero,
+        markdown,
+      };
+    }),
+
+  // ─── Cobranza: Resumen mensual ──────────────────────────────────
+  resumenMensual: authedQuery.query(async () => {
+    const db = getDb();
+    const todos = await db.select().from(honorarios);
+
+    const now = new Date();
+    const mesActual = now.getMonth();
+    const anioActual = now.getFullYear();
+
+    const mesAnterior = mesActual === 0 ? 11 : mesActual - 1;
+    const anioMesAnterior = mesActual === 0 ? anioActual - 1 : anioActual;
+
+    function esDelMes(
+      h: (typeof todos)[number],
+      mes: number,
+      anio: number,
+    ): boolean {
+      const d = new Date(h.createdAt);
+      return d.getMonth() === mes && d.getFullYear() === anio;
+    }
+
+    const actual = todos.filter((h) => esDelMes(h, mesActual, anioActual));
+    const anterior = todos.filter((h) =>
+      esDelMes(h, mesAnterior, anioMesAnterior),
+    );
+
+    const sumarizar = (arr: typeof todos) => ({
+      total: arr.length,
+      facturado: arr.reduce((a, h) => a + h.monto, 0),
+      cobrado: arr.reduce((a, h) => a + (h.montoPagado || 0), 0),
+      pendiente: arr.reduce(
+        (a, h) => a + (h.monto - (h.montoPagado || 0)),
+        0,
+      ),
+    });
+
+    const resActual = sumarizar(actual);
+    const resAnterior = sumarizar(anterior);
+
+    return {
+      mesActual: {
+        label: `${anioActual}-${String(mesActual + 1).padStart(2, "0")}`,
+        ...resActual,
+      },
+      mesAnterior: {
+        label: `${anioMesAnterior}-${String(mesAnterior + 1).padStart(2, "0")}`,
+        ...resAnterior,
+      },
+      variacion: {
+        facturado: resActual.facturado - resAnterior.facturado,
+        cobrado: resActual.cobrado - resAnterior.cobrado,
+        pendiente: resActual.pendiente - resAnterior.pendiente,
+      },
+    };
+  }),
+
+  // ─── Cobranza: Aging report ─────────────────────────────────────
+  aging: authedQuery.query(async () => {
+    const db = getDb();
+    const todos = await db.select().from(honorarios);
+
+    const pendientes = todos.filter(
+      (h) => h.estado !== "pagado" && h.monto - (h.montoPagado || 0) > 0,
+    );
+
+    const buckets = [
+      { label: "0-30 dias", min: 0, max: 30, count: 0, monto: 0 },
+      { label: "31-60 dias", min: 31, max: 60, count: 0, monto: 0 },
+      { label: "61-90 dias", min: 61, max: 90, count: 0, monto: 0 },
+      { label: "90+ dias", min: 91, max: Infinity, count: 0, monto: 0 },
+    ];
+
+    for (const h of pendientes) {
+      let dias = 0;
+      if (h.fechaVencimiento) {
+        const diff =
+          new Date().getTime() - new Date(h.fechaVencimiento).getTime();
+        dias = Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+      }
+      for (const b of buckets) {
+        if (dias >= b.min && dias <= b.max) {
+          b.count++;
+          b.monto += h.monto - (h.montoPagado || 0);
+          break;
+        }
+      }
+    }
+
+    return { buckets, totalPendientes: pendientes.length };
   }),
 });

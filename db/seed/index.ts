@@ -9,7 +9,14 @@ import {
   alertas,
   honorarios,
   actividadReciente,
+  expedientes,
+  cronologia,
+  notas,
+  leykarinDenuncias,
+  leykarinActuaciones,
+  diarioOficialNormas,
 } from "../schema";
+import { seedServiciosCompletos } from "./servicios-completos";
 import { sql } from "drizzle-orm";
 
 // ─── Importar Títulos del Código del Trabajo ─────────────────────
@@ -100,7 +107,13 @@ async function seedCompleto() {
   await db.delete(honorarios);
   await db.delete(alertas);
   await db.delete(tareas);
+  await db.delete(cronologia);
+  await db.delete(notas);
+  await db.delete(leykarinActuaciones);
+  await db.delete(leykarinDenuncias);
+  await db.delete(diarioOficialNormas);
   await db.delete(causas);
+  await db.delete(expedientes);
   console.log("       Tablas limpias.\n");
 
   // 2. INSERTAR DOCUMENTOS LEGALES (TODOS LOS TITULOS Y LIBROS)
@@ -220,7 +233,10 @@ async function seedCompleto() {
   ] as any);
   console.log("       Datos insertados.\n");
 
-  // 6. VERIFICACIÓN FINAL
+  // 6. SERVICIOS COMPLETOS (expedientes, causas ricas, tareas, alertas, cronología, notas, honorarios, Ley Karin, Diario Oficial)
+  await seedServiciosCompletos(db);
+
+  // 7. VERIFICACIÓN FINAL
   console.log("[6/6] Verificando inserción...");
   const countDocs = await db.select().from(documentosLegales);
   const countJuris = await db.select().from(jurisprudencias);

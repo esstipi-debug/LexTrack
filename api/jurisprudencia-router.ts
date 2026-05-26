@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { jurisprudencias } from "@db/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 
 function scoreDoc(query: string, doc: { caratula?: string | null; contenido: string; extracto?: string | null }): number {
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -18,12 +18,12 @@ function scoreDoc(query: string, doc: { caratula?: string | null; contenido: str
 }
 
 export const jurisprudenciaRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(jurisprudencias).orderBy(desc(jurisprudencias.createdAt));
   }),
 
-  buscar: publicQuery
+  buscar: authedQuery
     .input(z.object({ query: z.string().min(1) }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -37,7 +37,7 @@ export const jurisprudenciaRouter = createRouter({
       return scored;
     }),
 
-  estadisticas: publicQuery.query(async () => {
+  estadisticas: authedQuery.query(async () => {
     const db = getDb();
     const total = await db.select().from(jurisprudencias);
     const porTribunal = total.reduce((acc, j) => {

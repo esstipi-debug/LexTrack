@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -17,12 +18,16 @@ import {
   Bot,
   Sun,
   Moon,
+  BookOpen,
+  CheckSquare,
+  Building2,
 } from "lucide-react";
 import { useLexTheme } from "@/hooks/use-lex-theme";
 
 const mainNav = [
   { path: "/", label: "Inicio", icon: LayoutDashboard, match: (p: string) => p === "/" },
   { path: "/asistente", label: "Preguntar", icon: MessageSquare, match: (p: string) => p === "/asistente" },
+  { path: "/consulta-legal", label: "Consulta Legal", icon: BookOpen, match: (p: string) => p === "/consulta-legal" },
   {
     path: "/generador?tab=calculadora",
     label: "Calcular",
@@ -41,9 +46,11 @@ const mainNav = [
 const studioNav = [
   { path: "/causas", label: "Causas", icon: Gavel },
   { path: "/tareas", label: "Tareas", icon: ClipboardList },
+  { path: "/checklists", label: "Checklists", icon: CheckSquare },
   { path: "/alertas", label: "Alertas", icon: AlertCircle },
   { path: "/honorarios", label: "Honorarios", icon: DollarSign },
   { path: "/jurisprudencia", label: "Jurisprudencia", icon: Scale },
+  { path: "/poder-judicial", label: "Poder Judicial", icon: Building2 },
 ];
 
 function NavLink({
@@ -86,10 +93,18 @@ function NavLink({
   );
 }
 
+function getUserInitials(name?: string | null): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { theme, toggle } = useLexTheme();
+  const { user } = useAuth();
   const pathname = location.pathname;
 
   const closeMobile = () => setMobileOpen(false);
@@ -189,9 +204,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
             <div
               className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-violet-500 flex items-center justify-center text-white text-sm font-bold"
-              title="Usuario"
+              title={user?.name ?? "Usuario"}
             >
-              AB
+              {getUserInitials(user?.name)}
             </div>
           </div>
         </header>
