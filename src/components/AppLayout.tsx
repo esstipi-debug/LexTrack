@@ -17,12 +17,15 @@ import {
   Bot,
   Sun,
   Moon,
+  BookOpen,
+  CheckSquare,
 } from "lucide-react";
 import { useLexTheme } from "@/hooks/use-lex-theme";
 
 const mainNav = [
   { path: "/", label: "Inicio", icon: LayoutDashboard, match: (p: string) => p === "/" },
   { path: "/asistente", label: "Preguntar", icon: MessageSquare, match: (p: string) => p === "/asistente" },
+  { path: "/consulta-legal", label: "Consulta Legal", icon: BookOpen, match: (p: string) => p === "/consulta-legal" },
   {
     path: "/generador?tab=calculadora",
     label: "Calcular",
@@ -41,6 +44,7 @@ const mainNav = [
 const studioNav = [
   { path: "/causas", label: "Causas", icon: Gavel },
   { path: "/tareas", label: "Tareas", icon: ClipboardList },
+  { path: "/checklists", label: "Checklists", icon: CheckSquare },
   { path: "/alertas", label: "Alertas", icon: AlertCircle },
   { path: "/honorarios", label: "Honorarios", icon: DollarSign },
   { path: "/jurisprudencia", label: "Jurisprudencia", icon: Scale },
