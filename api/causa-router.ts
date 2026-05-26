@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
-import { causas, tareas, alertas, cronologia } from "@db/schema";
+import { causas, tareas, alertas, cronologia, notas } from "@db/schema";
 import { eq, desc, sql } from "drizzle-orm";
 
 export const causaRouter = createRouter({
@@ -46,7 +46,8 @@ export const causaRouter = createRouter({
       const tareasCausa = await db.select().from(tareas).where(eq(tareas.causaId, input.id));
       const alertasCausa = await db.select().from(alertas).where(eq(alertas.causaId, input.id));
       const cronologiaCausa = await db.select().from(cronologia).where(eq(cronologia.causaId, input.id));
-      return { ...causa[0], tareas: tareasCausa, alertas: alertasCausa, cronologia: cronologiaCausa };
+      const notasCausa = await db.select().from(notas).where(eq(notas.causaId, input.id));
+      return { ...causa[0], tareas: tareasCausa, alertas: alertasCausa, cronologia: cronologiaCausa, notas: notasCausa };
     }),
 
   actualizar: publicQuery
@@ -68,5 +69,21 @@ export const causaRouter = createRouter({
           sql`${causas.caratula} LIKE ${"%" + input.termino + "%"} OR ${causas.rit} LIKE ${"%" + input.termino + "%"} OR ${causas.ruc} LIKE ${"%" + input.termino + "%"}`
         )
         .limit(10);
+    }),
+
+  crearNota: publicQuery
+    .input(z.object({
+      causaId: z.number(),
+      contenido: z.string(),
+      tipo: z.string().default("general"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      await db.insert(notas).values({
+        causaId: input.causaId,
+        contenido: input.contenido,
+        tipo: input.tipo as any,
+      });
+      return { ok: true };
     }),
 });
