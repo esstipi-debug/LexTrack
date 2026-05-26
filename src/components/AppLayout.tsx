@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -90,10 +91,18 @@ function NavLink({
   );
 }
 
+function getUserInitials(name?: string | null): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { theme, toggle } = useLexTheme();
+  const { user } = useAuth();
   const pathname = location.pathname;
 
   const closeMobile = () => setMobileOpen(false);
@@ -193,9 +202,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
             <div
               className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-violet-500 flex items-center justify-center text-white text-sm font-bold"
-              title="Usuario"
+              title={user?.name ?? "Usuario"}
             >
-              AB
+              {getUserInitials(user?.name)}
             </div>
           </div>
         </header>

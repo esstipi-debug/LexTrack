@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { tareas, causas } from "@db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -22,12 +22,12 @@ const estadoEnum = z.enum(["pendiente", "en_progreso", "completada", "cancelada"
 const prioridadEnum = z.enum(["baja", "media", "alta", "critica"]);
 
 export const tareaRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(tareas).orderBy(desc(tareas.createdAt));
   }),
 
-  obtener: publicQuery
+  obtener: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -49,7 +49,7 @@ export const tareaRouter = createRouter({
       return { ...tarea[0], causa };
     }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(
       z.object({
         titulo: z.string(),
@@ -78,7 +78,7 @@ export const tareaRouter = createRouter({
       return result;
     }),
 
-  actualizar: publicQuery
+  actualizar: authedQuery
     .input(
       z.object({
         id: z.number(),
@@ -107,7 +107,7 @@ export const tareaRouter = createRouter({
       return { ok: true };
     }),
 
-  completar: publicQuery
+  completar: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -121,7 +121,7 @@ export const tareaRouter = createRouter({
       return { ok: true };
     }),
 
-  eliminar: publicQuery
+  eliminar: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -129,7 +129,7 @@ export const tareaRouter = createRouter({
       return { ok: true };
     }),
 
-  porCausa: publicQuery
+  porCausa: authedQuery
     .input(z.object({ causaId: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -140,7 +140,7 @@ export const tareaRouter = createRouter({
         .orderBy(desc(tareas.createdAt));
     }),
 
-  resumenSemanal: publicQuery.query(async () => {
+  resumenSemanal: authedQuery.query(async () => {
     const db = getDb();
     const hoy = new Date();
     const inicioSemana = new Date(hoy);
@@ -196,7 +196,7 @@ export const tareaRouter = createRouter({
     };
   }),
 
-  actualizarEstado: publicQuery
+  actualizarEstado: authedQuery
     .input(z.object({ id: z.number(), estado: estadoEnum }))
     .mutation(async ({ input }) => {
       const db = getDb();

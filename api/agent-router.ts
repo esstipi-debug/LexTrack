@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
 import {
@@ -1257,7 +1257,7 @@ CAPACIDADES:
 const MAX_TOOL_ROUNDS = 5;
 
 export const agentRouter = createRouter({
-  chat: publicQuery
+  chat: authedQuery
     .input(z.object({
       mensaje: z.string().min(1),
       sessionId: z.string().optional(),

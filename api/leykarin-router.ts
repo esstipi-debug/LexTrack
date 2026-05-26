@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { leykarinDenuncias, leykarinActuaciones } from "@db/schema";
 import { eq, desc } from "drizzle-orm";
@@ -88,12 +88,12 @@ function calcularDiasRestantes(fechaRecepcion: string | Date, plazo: number): nu
 
 // ─── Router ─────────────────────────────────────────────────────
 export const leykarinRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(leykarinDenuncias).orderBy(desc(leykarinDenuncias.createdAt));
   }),
 
-  obtener: publicQuery
+  obtener: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -115,7 +115,7 @@ export const leykarinRouter = createRouter({
       return { ...denuncia, actuaciones };
     }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(z.object({
       codigo: z.string(),
       fechaRecepcion: z.string(),
@@ -142,7 +142,7 @@ export const leykarinRouter = createRouter({
       return { ok: true };
     }),
 
-  cambiarEstado: publicQuery
+  cambiarEstado: authedQuery
     .input(z.object({ id: z.number(), estado: estadoEnum }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -172,7 +172,7 @@ export const leykarinRouter = createRouter({
       return { ok: true, de: estadoActual, a: nuevoEstado };
     }),
 
-  agregarActuacion: publicQuery
+  agregarActuacion: authedQuery
     .input(z.object({
       denunciaId: z.number(),
       fecha: z.string(),
@@ -192,7 +192,7 @@ export const leykarinRouter = createRouter({
       return { ok: true };
     }),
 
-  dashboard: publicQuery.query(async () => {
+  dashboard: authedQuery.query(async () => {
     const db = getDb();
     const todas = await db.select().from(leykarinDenuncias);
     const hoy = new Date();
@@ -236,7 +236,7 @@ export const leykarinRouter = createRouter({
     };
   }),
 
-  calcularPlazo: publicQuery
+  calcularPlazo: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -274,7 +274,7 @@ export const leykarinRouter = createRouter({
       };
     }),
 
-  generarProtocolo: publicQuery
+  generarProtocolo: authedQuery
     .input(empresaSchema)
     .mutation(async ({ input }) => {
       const empresa = input as EmpresaInput;
@@ -285,7 +285,7 @@ export const leykarinRouter = createRouter({
       };
     }),
 
-  estadisticas: publicQuery.query(async () => {
+  estadisticas: authedQuery.query(async () => {
     const db = getDb();
     const todas = await db.select().from(leykarinDenuncias);
     const porEstado = todas.reduce((acc, d) => {

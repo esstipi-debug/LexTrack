@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { documentosLegales } from "@db/schema";
 import { sql } from "drizzle-orm";
@@ -29,7 +29,7 @@ async function recuperarContexto(tema: string): Promise<string[]> {
 }
 
 export const generadorRouter = createRouter({
-  templates: publicQuery.query(() => {
+  templates: authedQuery.query(() => {
     return [
       { id: "carta_aviso_despido", nombre: "Carta de Aviso de Despido", descripcion: "Carta de notificación de término con indemnizaciones detalladas", icono: "mail", articulos: ["Art. 161 CT", "Art. 162 CT", "Art. 168 CT"] },
       { id: "notificacion_cliente", nombre: "Notificación a Cliente", descripcion: "Email automático sobre cambios en causa judicial", icono: "bell", articulos: [] },
@@ -38,7 +38,7 @@ export const generadorRouter = createRouter({
     ];
   }),
 
-  generar: publicQuery
+  generar: authedQuery
     .input(z.object({
       templateId: z.string(),
       datos: z.record(z.string(), z.any()),
@@ -133,7 +133,7 @@ Abogado patrocinante`,
       }
     }),
 
-  calcularIndemnizacion: publicQuery
+  calcularIndemnizacion: authedQuery
     .input(z.object({
       anios: z.number(),
       meses: z.number().optional(),

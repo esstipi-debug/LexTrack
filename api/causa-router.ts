@@ -1,16 +1,16 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { causas, tareas, alertas, cronologia, notas, honorarios } from "@db/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
 
 export const causaRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(causas).orderBy(desc(causas.createdAt));
   }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(
       z.object({
         rit: z.string(),
@@ -39,7 +39,7 @@ export const causaRouter = createRouter({
       return { ok: true };
     }),
 
-  obtener: publicQuery
+  obtener: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -60,7 +60,7 @@ export const causaRouter = createRouter({
       };
     }),
 
-  actualizar: publicQuery
+  actualizar: authedQuery
     .input(
       z.object({
         id: z.number(),
@@ -94,7 +94,7 @@ export const causaRouter = createRouter({
       return { ok: true };
     }),
 
-  buscar: publicQuery
+  buscar: authedQuery
     .input(z.object({ termino: z.string() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -107,7 +107,7 @@ export const causaRouter = createRouter({
         .limit(10);
     }),
 
-  analisis: publicQuery
+  analisis: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -257,7 +257,7 @@ export const causaRouter = createRouter({
       };
     }),
 
-  timeline: publicQuery
+  timeline: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();

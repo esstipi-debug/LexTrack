@@ -1,23 +1,23 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { checklistTemplates, checklistItems, checklistEjecuciones, checklistCompletados } from "@db/schema";
 import { eq } from "drizzle-orm";
 
 export const checklistRouter = createRouter({
-  templates: publicQuery.query(async () => {
+  templates: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(checklistTemplates);
   }),
 
-  items: publicQuery
+  items: authedQuery
     .input(z.object({ templateId: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
       return db.select().from(checklistItems).where(eq(checklistItems.templateId, input.templateId));
     }),
 
-  ejecutar: publicQuery
+  ejecutar: authedQuery
     .input(z.object({
       templateId: z.number(),
       causaId: z.number().optional(),
@@ -33,7 +33,7 @@ export const checklistRouter = createRouter({
       return result;
     }),
 
-  completarItem: publicQuery
+  completarItem: authedQuery
     .input(z.object({
       ejecucionId: z.number(),
       itemId: z.number(),

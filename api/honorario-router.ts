@@ -1,16 +1,16 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { honorarios } from "@db/schema";
 import { eq, desc, sql } from "drizzle-orm";
 
 export const honorarioRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(honorarios).orderBy(desc(honorarios.createdAt));
   }),
 
-  obtener: publicQuery
+  obtener: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -22,7 +22,7 @@ export const honorarioRouter = createRouter({
       return results[0] ?? null;
     }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(
       z.object({
         cliente: z.string(),
@@ -47,7 +47,7 @@ export const honorarioRouter = createRouter({
       return result;
     }),
 
-  actualizar: publicQuery
+  actualizar: authedQuery
     .input(
       z.object({
         id: z.number(),
@@ -90,7 +90,7 @@ export const honorarioRouter = createRouter({
       return { ok: true };
     }),
 
-  registrarPago: publicQuery
+  registrarPago: authedQuery
     .input(z.object({ id: z.number(), monto: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -119,7 +119,7 @@ export const honorarioRouter = createRouter({
       return { ok: true, nuevoPagado, nuevoEstado };
     }),
 
-  dashboard: publicQuery.query(async () => {
+  dashboard: authedQuery.query(async () => {
     const db = getDb();
     const todos = await db.select().from(honorarios);
 
@@ -221,7 +221,7 @@ export const honorarioRouter = createRouter({
     };
   }),
 
-  porCausa: publicQuery
+  porCausa: authedQuery
     .input(z.object({ causaId: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -232,7 +232,7 @@ export const honorarioRouter = createRouter({
         .orderBy(desc(honorarios.createdAt));
     }),
 
-  porCliente: publicQuery
+  porCliente: authedQuery
     .input(z.object({ cliente: z.string() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -243,7 +243,7 @@ export const honorarioRouter = createRouter({
         .orderBy(desc(honorarios.createdAt));
     }),
 
-  estadisticas: publicQuery.query(async () => {
+  estadisticas: authedQuery.query(async () => {
     const db = getDb();
     const todos = await db.select().from(honorarios);
     const totalFacturado = todos.reduce((a, h) => a + h.monto, 0);

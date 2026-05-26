@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
 import { documentosLegales, conversacionesRag, jurisprudencias } from "@db/schema";
@@ -17,7 +17,7 @@ function emptyRagMessage(mensaje: string): string {
 }
 
 export const ragRouter = createRouter({
-  buscar: publicQuery
+  buscar: authedQuery
     .input(z.object({ query: z.string().min(1), limite: z.number().optional() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -46,7 +46,7 @@ export const ragRouter = createRouter({
       };
     }),
 
-  chat: publicQuery
+  chat: authedQuery
     .input(
       z.object({
         mensaje: z.string().min(1),
@@ -170,7 +170,7 @@ export const ragRouter = createRouter({
       };
     }),
 
-  conversaciones: publicQuery
+  conversaciones: authedQuery
     .input(z.object({ sessionId: z.string() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -181,7 +181,7 @@ export const ragRouter = createRouter({
         .orderBy(conversacionesRag.createdAt);
     }),
 
-  estadisticas: publicQuery.query(async () => {
+  estadisticas: authedQuery.query(async () => {
     const db = getDb();
     const totalDocs = await db
       .select()

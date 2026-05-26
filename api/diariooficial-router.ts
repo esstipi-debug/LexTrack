@@ -1,16 +1,16 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { diarioOficialNormas } from "@db/schema";
 import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
 
 export const diarioOficialRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db.select().from(diarioOficialNormas).orderBy(desc(diarioOficialNormas.fechaPublicacion));
   }),
 
-  obtener: publicQuery
+  obtener: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -22,7 +22,7 @@ export const diarioOficialRouter = createRouter({
       return result[0] ?? null;
     }),
 
-  buscar: publicQuery
+  buscar: authedQuery
     .input(
       z.object({
         termino: z.string().optional(),
@@ -71,7 +71,7 @@ export const diarioOficialRouter = createRouter({
       return query.where(and(...conditions));
     }),
 
-  porMateria: publicQuery.query(async () => {
+  porMateria: authedQuery.query(async () => {
     const db = getDb();
     const todas = await db.select().from(diarioOficialNormas);
     const grupos: Record<string, { materia: string; count: number; normas: typeof todas }> = {};
@@ -87,7 +87,7 @@ export const diarioOficialRouter = createRouter({
     return Object.values(grupos).sort((a, b) => b.count - a.count);
   }),
 
-  recientes: publicQuery.query(async () => {
+  recientes: authedQuery.query(async () => {
     const db = getDb();
     // Fetch last 30 to allow prioritization of "laboral", then return top 10
     const todas = await db
@@ -102,7 +102,7 @@ export const diarioOficialRouter = createRouter({
     return combined.slice(0, 10);
   }),
 
-  dashboard: publicQuery.query(async () => {
+  dashboard: authedQuery.query(async () => {
     const db = getDb();
     const todas = await db.select().from(diarioOficialNormas);
 
@@ -154,7 +154,7 @@ export const diarioOficialRouter = createRouter({
     };
   }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(z.object({
       titulo: z.string(),
       organismo: z.string(),
@@ -177,7 +177,7 @@ export const diarioOficialRouter = createRouter({
       return { ok: true };
     }),
 
-  marcarAlerta: publicQuery
+  marcarAlerta: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -185,7 +185,7 @@ export const diarioOficialRouter = createRouter({
       return { ok: true };
     }),
 
-  estadisticas: publicQuery.query(async () => {
+  estadisticas: authedQuery.query(async () => {
     const db = getDb();
     const todas = await db.select().from(diarioOficialNormas);
     const porMateria = todas.reduce((acc, n) => {

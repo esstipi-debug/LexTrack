@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { alertas } from "@db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -20,7 +20,7 @@ const TIPO = [
 const ESTADO = ["pendiente", "leida", "archivada"] as const;
 
 export const alertaRouter = createRouter({
-  listar: publicQuery.query(async () => {
+  listar: authedQuery.query(async () => {
     const db = getDb();
     return db
       .select()
@@ -31,7 +31,7 @@ export const alertaRouter = createRouter({
       );
   }),
 
-  obtener: publicQuery
+  obtener: authedQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -43,7 +43,7 @@ export const alertaRouter = createRouter({
       return rows[0] ?? null;
     }),
 
-  crear: publicQuery
+  crear: authedQuery
     .input(
       z.object({
         titulo: z.string().min(1, "El título es requerido"),
@@ -78,7 +78,7 @@ export const alertaRouter = createRouter({
       return result;
     }),
 
-  marcarLeida: publicQuery
+  marcarLeida: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -89,7 +89,7 @@ export const alertaRouter = createRouter({
       return { ok: true };
     }),
 
-  marcarTodasLeidas: publicQuery.mutation(async () => {
+  marcarTodasLeidas: authedQuery.mutation(async () => {
     const db = getDb();
     await db
       .update(alertas)
@@ -98,7 +98,7 @@ export const alertaRouter = createRouter({
     return { ok: true };
   }),
 
-  archivar: publicQuery
+  archivar: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -109,7 +109,7 @@ export const alertaRouter = createRouter({
       return { ok: true };
     }),
 
-  dashboard: publicQuery.query(async () => {
+  dashboard: authedQuery.query(async () => {
     const db = getDb();
 
     const hoyInicio = new Date();
@@ -158,7 +158,7 @@ export const alertaRouter = createRouter({
     };
   }),
 
-  porCausa: publicQuery
+  porCausa: authedQuery
     .input(z.object({ causaId: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
