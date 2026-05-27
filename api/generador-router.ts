@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, authedQuery } from "./middleware";
+import { createRouter, authedQuery, subscriptionGatedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { documentosLegales } from "@db/schema";
 import { sql } from "drizzle-orm";
@@ -38,7 +38,7 @@ export const generadorRouter = createRouter({
     ];
   }),
 
-  generar: authedQuery
+  generar: subscriptionGatedQuery
     .input(z.object({
       templateId: z.string(),
       datos: z.record(z.string(), z.any()),

@@ -175,6 +175,10 @@ vi.mock("@db/schema", () => {
   };
 });
 
+vi.mock("@db/schema-billing", () => ({
+  subscriptions: { __name: "subscriptions" },
+}));
+
 vi.mock("./queries/connection", () => ({
   getDb: () => ({
     select: () => ({
@@ -206,7 +210,21 @@ function resetState() {
   __anthropicState.responses = [];
   __anthropicState.calls = [];
   __anthropicState.loopForever = null;
-  __dbState.rows = {};
+  __dbState.rows = {
+    // Seed an active trial so subscriptionGatedQuery middleware passes.
+    subscriptions: [
+      {
+        id: 1,
+        userId: 1,
+        plan: "free",
+        provider: "stripe",
+        status: "trialing",
+        trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ],
+  };
   __dbState.lastInsert = null;
   __dbState.insertResult = [{ id: 42 }];
   __dbState.capturedConditions = [];
