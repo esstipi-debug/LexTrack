@@ -38,5 +38,29 @@ services:
       retries: 5
       start_period: 10s
 
+# Run with backup: docker compose --profile backup up -d
+# Backups stored in ./backups/, rotated after 7 days
+  backup:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PGPASSWORD=${POSTGRES_PASSWORD:-lextrack}
+    volumes:
+      - ./backups:/backups
+    entrypoint: >
+      sh -c "while true; do
+        pg_dump -h postgres -U $${POSTGRES_USER:-lextrack} $${POSTGRES_DB:-lextrack}
+        | gzip > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql.gz;
+        echo \"Backup completed at $$(date)\";
+        find /backups -name '*.sql.gz' -mtime +7 -delete;
+        sleep 86400;
+      done"
+    restart: unless-stopped
+    profiles:
+      - backup
+
 volumes:
   lextrack_pgdata:
+  # backups/ is a bind mount (local dir), not a named volume

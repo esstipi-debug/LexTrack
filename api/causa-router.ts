@@ -1,8 +1,34 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { causas, tareas, alertas, cronologia, notas } from "@db/schema";
-import { eq, desc, sql, and, lt } from "drizzle-orm";
+import { subscriptions } from "../db/schema-billing";
+import { eq, desc, sql, and, lt, count } from "drizzle-orm";
+
+async function checkPlanLimit(userId: number, db: ReturnType<typeof getDb>) {
+  // Get user's current plan from subscriptions table
+  const sub = await db.select({ plan: subscriptions.plan })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')))
+    .limit(1);
+
+  const plan = sub[0]?.plan ?? 'free';
+  const limit = plan === 'pro' ? Infinity : plan === 'starter' ? 50 : 5;
+
+  if (limit === Infinity) return; // pro has no limit
+
+  const [{ count: currentCount }] = await db.select({ count: count() })
+    .from(causas)
+    .where(eq(causas.userId, userId));
+
+  if (Number(currentCount) >= limit) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `Tu plan ${plan} permite máximo ${limit} causas. Actualiza tu plan para continuar.`,
+    });
+  }
+}
 
 const paginationInput = z.object({
   limit: z.number().int().positive().max(100).optional(),
@@ -56,6 +82,7 @@ export const causaRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      await checkPlanLimit(ctx.user.id, db);
       const values: Record<string, unknown> = { ...input, userId: ctx.user.id };
       if (input.fechaIngreso) values.fechaIngreso = new Date(input.fechaIngreso);
       delete (values as any).datos;

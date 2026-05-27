@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -21,8 +21,10 @@ import {
   BookOpen,
   CheckSquare,
   Building2,
+  Bell,
 } from "lucide-react";
 import { useLexTheme } from "@/hooks/use-lex-theme";
+import { trpc } from "@/providers/trpc";
 
 const mainNav = [
   { path: "/", label: "Inicio", icon: LayoutDashboard, match: (p: string) => p === "/" },
@@ -98,6 +100,31 @@ function getUserInitials(name?: string | null): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+function NotificationBell() {
+  const navigate = useNavigate();
+  const { data } = trpc.alerta.listar.useQuery(
+    { limit: 5 },
+    { refetchInterval: 60_000 }
+  );
+  const unreadCount = data?.items?.filter((a) => a.estado === "pendiente").length ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate("/alertas")}
+      className="relative p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800"
+      title="Alertas"
+    >
+      <Bell className="w-5 h-5" />
+      {unreadCount > 0 && (
+        <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
+          {unreadCount > 9 ? "9+" : unreadCount}
+        </span>
+      )}
+    </button>
+  );
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -195,6 +222,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               {theme === "light" ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
             </button>
+            <NotificationBell />
             <Link
               to="/asistente"
               className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-colors dark:text-blue-400 dark:border-blue-400 dark:hover:bg-blue-600 dark:hover:text-white"

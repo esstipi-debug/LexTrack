@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import {
   Card,
@@ -13,6 +14,8 @@ import { toast } from "sonner";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import type { Plan } from "../../api/lib/billing/types";
 
+type Provider = "mercadopago" | "stripe";
+
 const CLP_FORMAT = new Intl.NumberFormat("es-CL", {
   style: "decimal",
   minimumFractionDigits: 0,
@@ -24,6 +27,8 @@ function formatCLP(amount: number): string {
 }
 
 export default function Billing() {
+  const [provider, setProvider] = useState<Provider>("mercadopago");
+
   const { data: plans } = trpc.billing.plans.useQuery();
   const { data: currentPlanData, isLoading: loadingPlan } =
     trpc.billing.currentPlan.useQuery();
@@ -57,6 +62,34 @@ export default function Billing() {
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
+
+      {/* Provider selector */}
+      <div className="flex justify-center mb-8">
+        <div className="inline-flex rounded-lg border bg-muted p-1 gap-1">
+          <button
+            type="button"
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              provider === "mercadopago"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setProvider("mercadopago")}
+          >
+            MercadoPago — Tarjetas, débito, transferencia
+          </button>
+          <button
+            type="button"
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              provider === "stripe"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setProvider("stripe")}
+          >
+            Stripe — Tarjeta internacional
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {planKeys.map((key) => {
@@ -117,7 +150,7 @@ export default function Billing() {
                       if (isCurrentPlan) return;
                       createCheckout.mutate({
                         plan: key as "starter" | "pro",
-                        provider: "stripe",
+                        provider,
                       });
                     }}
                   >

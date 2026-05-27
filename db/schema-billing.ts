@@ -10,7 +10,7 @@ import {
 import { users } from './schema';
 
 export const planEnum = pgEnum('billing_plan', ['free', 'starter', 'pro']);
-export const billingProviderEnum = pgEnum('billing_provider', ['stripe', 'dlocal']);
+export const billingProviderEnum = pgEnum('billing_provider', ['stripe', 'mercadopago']);
 export const subscriptionStatusEnum = pgEnum('subscription_status', [
   'active',
   'past_due',

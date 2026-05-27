@@ -17,6 +17,13 @@ import {
 // ─── Enums ───────────────────────────────────────────────────────
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 
+export const orgRoleEnum = pgEnum("org_role", ["owner", "admin", "member"]);
+export const inviteStatusEnum = pgEnum("invite_status", [
+  "pending",
+  "accepted",
+  "expired",
+]);
+
 export const materiaEnum = pgEnum("materia", [
   "laboral",
   "civil",
@@ -344,6 +351,10 @@ export const users = pgTable("users", {
     .notNull()
     .$onUpdate(() => new Date()),
   lastSignInAt: timestamp("lastSignInAt").defaultNow().notNull(),
+  hasCompletedOnboarding: boolean("hasCompletedOnboarding")
+    .default(false)
+    .notNull(),
+  consentedAt: timestamp("consentedAt"), // null = no consent yet (Ley 19.628)
 });
 
 export type User = typeof users.$inferSelect;
@@ -1009,3 +1020,69 @@ export const diarioOficialNormas = pgTable(
 
 export type DiarioOficialNorma = typeof diarioOficialNormas.$inferSelect;
 export type InsertDiarioOficialNorma = typeof diarioOficialNormas.$inferInsert;
+
+// ─── Organizations ───────────────────────────────────────────────
+export const organizations = pgTable("organizations", {
+  id: serial("id").primaryKey(),
+  nombre: varchar("nombre", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  plan: varchar("plan", { length: 50 }).default("free").notNull(),
+  logoUrl: text("logoUrl"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = typeof organizations.$inferInsert;
+
+// ─── Org Members ─────────────────────────────────────────────────
+export const orgMembers = pgTable(
+  "org_members",
+  {
+    id: serial("id").primaryKey(),
+    orgId: bigint("orgId", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: bigint("userId", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: orgRoleEnum("role").default("member").notNull(),
+    joinedAt: timestamp("joinedAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueOrgUser: unique("unique_org_user").on(table.orgId, table.userId),
+    orgIdIdx: index("org_members_org_idx").on(table.orgId),
+    userIdIdx: index("org_members_user_idx").on(table.userId),
+  })
+);
+
+export type OrgMember = typeof orgMembers.$inferSelect;
+export type InsertOrgMember = typeof orgMembers.$inferInsert;
+
+// ─── Invites ─────────────────────────────────────────────────────
+export const invites = pgTable(
+  "invites",
+  {
+    id: serial("id").primaryKey(),
+    orgId: bigint("orgId", { mode: "number" })
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    invitedByUserId: bigint("invitedByUserId", { mode: "number" })
+      .notNull()
+      .references(() => users.id),
+    email: varchar("email", { length: 320 }).notNull(),
+    role: orgRoleEnum("role").default("member").notNull(),
+    token: varchar("token", { length: 64 }).notNull().unique(), // nanoid(32) token
+    status: inviteStatusEnum("status").default("pending").notNull(),
+    expiresAt: timestamp("expiresAt").notNull(), // createdAt + 7 days
+    acceptedAt: timestamp("acceptedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    tokenIdx: index("invites_token_idx").on(table.token),
+    orgEmailIdx: index("invites_org_email_idx").on(table.orgId, table.email),
+  })
+);
+
+export type Invite = typeof invites.$inferSelect;
+export type InsertInvite = typeof invites.$inferInsert;

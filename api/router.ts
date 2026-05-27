@@ -15,6 +15,7 @@ import { agentRouter } from "./agent-router";
 import { statsRouter } from "./stats-router";
 import { pjudRouter } from "./pjud-router";
 import { jobsRouter } from "./jobs-router";
+import { orgRouter } from "./org-router";
 import { pdfRouter } from "./pdf-router";
 
 export const appRouter = createRouter({
@@ -34,6 +35,7 @@ export const appRouter = createRouter({
   stats: statsRouter,
   pjud: pjudRouter,
   jobs: jobsRouter,
+  org: orgRouter,
   pdf: pdfRouter,
   billing: billingRouter,
 });

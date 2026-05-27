@@ -19,7 +19,7 @@ import { createContext } from "./context";
 import { env } from "./lib/env";
 import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
-import { generalLimiter, agentLimiter, ragLimiter } from "./lib/rate-limit";
+import { generalLimiter, agentLimiter, ragLimiter, authLimiter } from "./lib/rate-limit";
 import { createLogger, logger } from "./lib/logger";
 import { getDb } from "./queries/connection";
 
@@ -91,6 +91,9 @@ app.get('/health', async (c) => {
     healthy ? 200 : 503,
   );
 });
+// Auth/OAuth rate limit — IP-only, applied before the user is authenticated.
+app.use("/api/oauth/*", authLimiter);
+app.use("/api/trpc/auth.*", authLimiter);
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
 // Global rate limit applies to everything below.

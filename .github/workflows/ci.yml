@@ -13,12 +13,25 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lextrack
+          POSTGRES_PASSWORD: lextrack
+          POSTGRES_DB: lextrack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      # Dummy values so code that reads these envs at import/build time does not crash.
-      # Never put real secrets here.
-      DATABASE_URL: postgres://user:pass@localhost:5432/lextrack
-      DATABASE_URL_POSTGRES: postgres://user:pass@localhost:5432/lextrack
-      RAG_DATABASE_URL: postgres://user:pass@localhost:5432/lextrack_rag
+      # Real Postgres service is available in CI — DATABASE_URL points to it.
+      DATABASE_URL: postgres://lextrack:lextrack@localhost:5432/lextrack_test
+      DATABASE_URL_POSTGRES: postgres://lextrack:lextrack@localhost:5432/lextrack_test
+      RAG_DATABASE_URL: postgres://lextrack:lextrack@localhost:5432/lextrack_test
       ANTHROPIC_API_KEY: dummy
       ANTHROPIC_MODEL: claude-sonnet-4-20250514
       VOYAGE_API_KEY: dummy
@@ -37,6 +50,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run database migrations
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: postgres://lextrack:lextrack@localhost:5432/lextrack_test
 
       - name: Lint
         run: npm run lint

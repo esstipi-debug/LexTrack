@@ -11,7 +11,7 @@ import {
   handleWebhook,
   cancelSubscriptionAtPeriodEnd,
 } from './lib/billing/stripe';
-import { createDlocalPayment } from './lib/billing/dlocal';
+import { createMpPreference, handleMpWebhook } from './lib/billing/mercadopago';
 
 export const billingRouter = createRouter({
   // ─── Public: list all plans ────────────────────────────────────────
@@ -30,12 +30,12 @@ export const billingRouter = createRouter({
     return { plan: rows[0].plan, subscription: rows[0] };
   }),
 
-  // ─── Authed: create checkout session (Stripe or dLocal) ───────────
+  // ─── Authed: create checkout session (MercadoPago or Stripe) ────────
   createCheckout: authedQuery
     .input(
       z.object({
         plan: z.enum(['starter', 'pro']),
-        provider: z.enum(['stripe', 'dlocal']),
+        provider: z.enum(['stripe', 'mercadopago']),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -43,27 +43,27 @@ export const billingRouter = createRouter({
         process.env.APP_URL ?? 'http://localhost:5173';
       const successUrl = `${baseUrl}/billing?success=1`;
       const cancelUrl = `${baseUrl}/billing?canceled=1`;
+      const pendingUrl = `${baseUrl}/billing?pending=1`;
 
-      if (input.provider === 'stripe') {
-        const { url } = await createCheckoutSession(
+      if (input.provider === 'mercadopago') {
+        const data = await createMpPreference(
           ctx.user.id,
           input.plan,
           successUrl,
           cancelUrl,
+          pendingUrl,
         );
-        return { url };
+        return { url: data.initPoint };
       }
 
-      // dLocal provider
-      const planConfig = PLANS[input.plan];
-      const notifyUrl = `${baseUrl}/api/trpc/billing.webhook`;
-      const { redirectUrl } = await createDlocalPayment(
+      // Stripe provider
+      const { url } = await createCheckoutSession(
         ctx.user.id,
         input.plan,
-        planConfig.price,
-        notifyUrl,
+        successUrl,
+        cancelUrl,
       );
-      return { url: redirectUrl };
+      return { url };
     }),
 
   // ─── Public: Stripe webhook ────────────────────────────────────────
@@ -167,6 +167,77 @@ export const billingRouter = createRouter({
               updatedAt: new Date(),
             })
             .where(eq(subscriptions.externalId, sub.id));
+        }
+      }
+
+      return { received: true };
+    }),
+
+  // ─── Public: MercadoPago IPN webhook ──────────────────────────────
+  // MP sends: POST /api/trpc/billing.mpWebhook with { body: <raw MP payload> }
+  mpWebhook: publicQuery
+    .input(
+      z.object({
+        body: z.unknown(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      let result;
+      try {
+        result = await handleMpWebhook(input.body);
+      } catch (err) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `MercadoPago webhook error: ${String(err)}`,
+        });
+      }
+
+      if (result.type === 'payment_approved') {
+        const db = getDb();
+        const { userId, plan, paymentId } = result;
+
+        if (!userId || !plan) {
+          return { received: true };
+        }
+
+        // Idempotency: check if this paymentId has already been recorded
+        const existing = await db
+          .select()
+          .from(subscriptions)
+          .where(eq(subscriptions.userId, userId))
+          .limit(1);
+
+        const now = new Date();
+        const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+
+        if (existing.length > 0) {
+          // Only update if this isn't the same payment already stored
+          if (existing[0].externalId !== paymentId) {
+            await db
+              .update(subscriptions)
+              .set({
+                plan: plan as 'starter' | 'pro',
+                provider: 'mercadopago',
+                externalId: paymentId,
+                status: 'active',
+                currentPeriodEnd: periodEnd,
+                cancelAtPeriodEnd: false,
+                updatedAt: now,
+              })
+              .where(eq(subscriptions.userId, userId));
+          }
+        } else {
+          await db.insert(subscriptions).values({
+            userId,
+            plan: plan as 'starter' | 'pro',
+            provider: 'mercadopago',
+            externalId: paymentId,
+            status: 'active',
+            currentPeriodEnd: periodEnd,
+            cancelAtPeriodEnd: false,
+            createdAt: now,
+            updatedAt: now,
+          });
         }
       }
 

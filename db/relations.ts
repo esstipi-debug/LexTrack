@@ -14,6 +14,9 @@ import {
   checklistCompletados,
   leykarinDenuncias,
   leykarinActuaciones,
+  organizations,
+  orgMembers,
+  invites,
 } from "./schema";
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -28,6 +31,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   checklistCompletados: many(checklistCompletados),
   leykarinDenuncias: many(leykarinDenuncias),
   leykarinActuaciones: many(leykarinActuaciones),
+  orgMembers: many(orgMembers),
 }));
 
 export const expedientesRelations = relations(expedientes, ({ one, many }) => ({
@@ -199,3 +203,33 @@ export const leykarinActuacionesRelations = relations(
     }),
   })
 );
+
+export const organizationsRelations = relations(
+  organizations,
+  ({ many }) => ({
+    members: many(orgMembers),
+    invites: many(invites),
+  })
+);
+
+export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [orgMembers.orgId],
+    references: [organizations.id],
+  }),
+  user: one(users, {
+    fields: [orgMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const invitesRelations = relations(invites, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [invites.orgId],
+    references: [organizations.id],
+  }),
+  invitedByUser: one(users, {
+    fields: [invites.invitedByUserId],
+    references: [users.id],
+  }),
+}));

@@ -25,12 +25,29 @@ async function resolveKey(c: Context): Promise<string> {
   return `ip:${remote ?? "unknown"}`;
 }
 
-function buildLimiter(opts: { windowMs: number; limit: number }) {
+/**
+ * Resolve key by IP only — used for auth routes where the user is not yet
+ * authenticated and no userId is available.
+ */
+async function resolveIpKey(c: Context): Promise<string> {
+  const fwd =
+    c.req.header("cf-connecting-ip") ||
+    c.req.header("x-forwarded-for") ||
+    c.req.header("c-ip") ||
+    "";
+  const ip = fwd.split(",")[0]?.trim();
+  if (ip) return `ip:${ip}`;
+  // @ts-expect-error — env.incoming exists when running under @hono/node-server
+  const remote = c.env?.incoming?.socket?.remoteAddress as string | undefined;
+  return `ip:${remote ?? "unknown"}`;
+}
+
+function buildLimiter(opts: { windowMs: number; limit: number; ipOnly?: boolean }) {
   return rateLimiter({
     windowMs: opts.windowMs,
     limit: opts.limit,
     standardHeaders: "draft-7",
-    keyGenerator: resolveKey,
+    keyGenerator: opts.ipOnly ? resolveIpKey : resolveKey,
     handler: (c) => {
       const retryAfter = Math.ceil(opts.windowMs / 1000);
       c.header("Retry-After", String(retryAfter));
@@ -52,6 +69,9 @@ export const agentLimiter = buildLimiter({ windowMs: 60_000, limit: 20 });
 export const ragLimiter = buildLimiter({ windowMs: 60_000, limit: 30 });
 
 /** Factory for tests / custom limits. */
-export function makeRateLimiter(windowMs: number, limit: number) {
-  return buildLimiter({ windowMs, limit });
+export function makeRateLimiter(windowMs: number, limit: number, ipOnly = false) {
+  return buildLimiter({ windowMs, limit, ipOnly });
 }
+
+/** 10 req/min per IP — for auth/OAuth routes before the user is authenticated. */
+export const authLimiter = makeRateLimiter(60_000, 10, true);
