@@ -3,6 +3,7 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { alertas } from "@db/schema";
 import { eq, desc, and, sql, lt } from "drizzle-orm";
+import { getUserOrgIds, getPrimaryOrgId, visibleToUserCondition } from "./lib/org-scope";
 
 const paginationInput = z.object({
   limit: z.number().int().positive().max(100).optional(),
@@ -31,15 +32,19 @@ export const alertaRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input?.limit ?? 20, 100);
       const cursor = input?.cursor ?? null;
-      // TODO: existing endpoint sorted by prioridad CASE then createdAt desc.
-      // For cursor pagination we paginate by id desc only — primary prioridad
-      // sort is dropped here. Re-add compound cursor if UX needs it.
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        alertas.userId,
+        alertas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(alertas)
         .where(
           and(
-            eq(alertas.userId, ctx.user.id),
+            visibility,
             cursor ? lt(alertas.id, cursor) : undefined
           )
         )
@@ -55,10 +60,17 @@ export const alertaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        alertas.userId,
+        alertas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(alertas)
-        .where(and(eq(alertas.id, input.id), eq(alertas.userId, ctx.user.id)))
+        .where(and(eq(alertas.id, input.id), visibility))
         .limit(1);
       return rows[0] ?? null;
     }),
@@ -78,8 +90,10 @@ export const alertaRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgId = await getPrimaryOrgId(ctx.user.id);
       const values: Record<string, unknown> = {
         userId: ctx.user.id,
+        orgId, // auto-share within firm when user belongs to one
         titulo: input.titulo,
         descripcion: input.descripcion ?? null,
         prioridad: input.prioridad,
@@ -103,13 +117,20 @@ export const alertaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        alertas.userId,
+        alertas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       await db
         .update(alertas)
         .set({ estado: "leida", leidaAt: new Date() })
         .where(
           and(
             eq(alertas.id, input.id),
-            eq(alertas.userId, ctx.user.id),
+            visibility,
             eq(alertas.estado, "pendiente")
           )
         );
@@ -118,10 +139,17 @@ export const alertaRouter = createRouter({
 
   marcarTodasLeidas: authedQuery.mutation(async ({ ctx }) => {
     const db = getDb();
+    const orgIds = await getUserOrgIds(ctx.user.id);
+    const visibility = visibleToUserCondition(
+      alertas.userId,
+      alertas.orgId,
+      ctx.user.id,
+      orgIds,
+    );
     await db
       .update(alertas)
       .set({ estado: "leida", leidaAt: new Date() })
-      .where(and(eq(alertas.userId, ctx.user.id), eq(alertas.estado, "pendiente")));
+      .where(and(visibility, eq(alertas.estado, "pendiente")));
     return { ok: true };
   }),
 
@@ -129,10 +157,17 @@ export const alertaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        alertas.userId,
+        alertas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       await db
         .update(alertas)
         .set({ estado: "archivada" })
-        .where(and(eq(alertas.id, input.id), eq(alertas.userId, ctx.user.id)));
+        .where(and(eq(alertas.id, input.id), visibility));
       return { ok: true };
     }),
 
@@ -144,7 +179,13 @@ export const alertaRouter = createRouter({
     const hoyFin = new Date();
     hoyFin.setHours(23, 59, 59, 999);
 
-    const userScope = eq(alertas.userId, ctx.user.id);
+    const orgIds = await getUserOrgIds(ctx.user.id);
+    const userScope = visibleToUserCondition(
+      alertas.userId,
+      alertas.orgId,
+      ctx.user.id,
+      orgIds,
+    );
 
     const [totalPendientes, totalLeidasHoy, porTipo, porPrioridad, totalArchivadas] =
       await Promise.all([
@@ -202,14 +243,20 @@ export const alertaRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input.limit ?? 20, 100);
       const cursor = input.cursor ?? null;
-      // TODO: primary prioridad CASE sort dropped for cursor pagination.
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        alertas.userId,
+        alertas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(alertas)
         .where(
           and(
             eq(alertas.causaId, input.causaId),
-            eq(alertas.userId, ctx.user.id),
+            visibility,
             cursor ? lt(alertas.id, cursor) : undefined
           )
         )

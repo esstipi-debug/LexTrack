@@ -9,6 +9,7 @@ import {
   actividadReciente,
 } from "@db/schema";
 import { eq, sql, count, sum, and, gte, lte, lt } from "drizzle-orm";
+import { getUserOrgIds, visibleToUserCondition } from "./lib/org-scope";
 
 export const statsRouter = createRouter({
   dashboard: authedQuery.query(async ({ ctx }) => {
@@ -16,6 +17,9 @@ export const statsRouter = createRouter({
     const userId = ctx.user.id;
     const hoy = new Date();
     const hoyStr = hoy.toISOString().split("T")[0];
+
+    // ── Org scope ────────────────────────────────────────────────────
+    const orgIds = await getUserOrgIds(userId);
 
     // ── Mes actual y anterior ───────────────────────────────────────
     const inicioMesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
@@ -27,18 +31,18 @@ export const statsRouter = createRouter({
     const [causasTotalRow] = await db
       .select({ total: count() })
       .from(causas)
-      .where(eq(causas.userId, userId));
+      .where(visibleToUserCondition(causas.userId, causas.orgId, userId, orgIds));
 
     const causasPorEstado = await db
       .select({ estado: causas.estado, total: count() })
       .from(causas)
-      .where(eq(causas.userId, userId))
+      .where(visibleToUserCondition(causas.userId, causas.orgId, userId, orgIds))
       .groupBy(causas.estado);
 
     const causasPorMateria = await db
       .select({ materia: causas.materia, total: count() })
       .from(causas)
-      .where(eq(causas.userId, userId))
+      .where(visibleToUserCondition(causas.userId, causas.orgId, userId, orgIds))
       .groupBy(causas.materia);
 
     const estadosCausas = ["tramitacion", "notificacion", "prueba", "sentencia", "ejecucion", "concluida", "archivada"] as const;
@@ -58,14 +62,14 @@ export const statsRouter = createRouter({
     const [causasEsteMesRow] = await db
       .select({ total: count() })
       .from(causas)
-      .where(and(eq(causas.userId, userId), gte(causas.createdAt, inicioMesActual)));
+      .where(and(visibleToUserCondition(causas.userId, causas.orgId, userId, orgIds), gte(causas.createdAt, inicioMesActual)));
 
     const [causasMesAnteriorRow] = await db
       .select({ total: count() })
       .from(causas)
       .where(
         and(
-          eq(causas.userId, userId),
+          visibleToUserCondition(causas.userId, causas.orgId, userId, orgIds),
           gte(causas.createdAt, inicioMesAnterior),
           lte(causas.createdAt, finMesAnterior),
         )
@@ -78,19 +82,19 @@ export const statsRouter = createRouter({
     const [tareasTotalRow] = await db
       .select({ total: count() })
       .from(tareas)
-      .where(eq(tareas.userId, userId));
+      .where(visibleToUserCondition(tareas.userId, tareas.orgId, userId, orgIds));
 
     const [tareasPendientesRow] = await db
       .select({ total: count() })
       .from(tareas)
-      .where(and(eq(tareas.userId, userId), eq(tareas.estado, "pendiente")));
+      .where(and(visibleToUserCondition(tareas.userId, tareas.orgId, userId, orgIds), eq(tareas.estado, "pendiente")));
 
     const [tareasVencidasRow] = await db
       .select({ total: count() })
       .from(tareas)
       .where(
         and(
-          eq(tareas.userId, userId),
+          visibleToUserCondition(tareas.userId, tareas.orgId, userId, orgIds),
           sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
           sql`${tareas.fechaVencimiento} IS NOT NULL`,
           lt(tareas.fechaVencimiento, new Date(hoyStr)),
@@ -102,7 +106,7 @@ export const statsRouter = createRouter({
       .from(tareas)
       .where(
         and(
-          eq(tareas.userId, userId),
+          visibleToUserCondition(tareas.userId, tareas.orgId, userId, orgIds),
           eq(tareas.estado, "completada"),
           sql`${tareas.fechaCompletada} IS NOT NULL`,
           gte(tareas.fechaCompletada, inicioMesActual),
@@ -114,7 +118,7 @@ export const statsRouter = createRouter({
       .from(tareas)
       .where(
         and(
-          eq(tareas.userId, userId),
+          visibleToUserCondition(tareas.userId, tareas.orgId, userId, orgIds),
           eq(tareas.estado, "completada"),
           sql`${tareas.fechaCompletada} IS NOT NULL`,
           gte(tareas.fechaCompletada, inicioMesAnterior),
@@ -127,7 +131,7 @@ export const statsRouter = createRouter({
       .from(tareas)
       .where(
         and(
-          eq(tareas.userId, userId),
+          visibleToUserCondition(tareas.userId, tareas.orgId, userId, orgIds),
           sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
           sql`${tareas.fechaVencimiento} IS NOT NULL`,
           gte(tareas.fechaVencimiento, new Date(hoyStr)),
@@ -145,18 +149,18 @@ export const statsRouter = createRouter({
     const [alertasPendientesRow] = await db
       .select({ total: count() })
       .from(alertas)
-      .where(and(eq(alertas.userId, userId), eq(alertas.estado, "pendiente")));
+      .where(and(visibleToUserCondition(alertas.userId, alertas.orgId, userId, orgIds), eq(alertas.estado, "pendiente")));
 
     const alertasPorTipo = await db
       .select({ tipo: alertas.tipo, total: count() })
       .from(alertas)
-      .where(and(eq(alertas.userId, userId), eq(alertas.estado, "pendiente")))
+      .where(and(visibleToUserCondition(alertas.userId, alertas.orgId, userId, orgIds), eq(alertas.estado, "pendiente")))
       .groupBy(alertas.tipo);
 
     const alertasPorPrioridad = await db
       .select({ prioridad: alertas.prioridad, total: count() })
       .from(alertas)
-      .where(and(eq(alertas.userId, userId), eq(alertas.estado, "pendiente")))
+      .where(and(visibleToUserCondition(alertas.userId, alertas.orgId, userId, orgIds), eq(alertas.estado, "pendiente")))
       .groupBy(alertas.prioridad);
 
     const alertasPendientes = alertasPendientesRow?.total ?? 0;
@@ -172,14 +176,14 @@ export const statsRouter = createRouter({
         totalPagado: sum(honorarios.montoPagado),
       })
       .from(honorarios)
-      .where(eq(honorarios.userId, userId));
+      .where(visibleToUserCondition(honorarios.userId, honorarios.orgId, userId, orgIds));
 
     const morosidadRows = await db
       .select({ monto: honorarios.monto, montoPagado: honorarios.montoPagado })
       .from(honorarios)
       .where(
         and(
-          eq(honorarios.userId, userId),
+          visibleToUserCondition(honorarios.userId, honorarios.orgId, userId, orgIds),
           sql`${honorarios.estado} IN ('vencido', 'moroso', 'cobranza')`,
         )
       );
@@ -197,14 +201,14 @@ export const statsRouter = createRouter({
     const [leyKarinTotalRow] = await db
       .select({ total: count() })
       .from(leykarinDenuncias)
-      .where(eq(leykarinDenuncias.userId, userId));
+      .where(visibleToUserCondition(leykarinDenuncias.userId, leykarinDenuncias.orgId, userId, orgIds));
 
     const activasDenuncias = await db
       .select({ fechaPlazo: leykarinDenuncias.fechaPlazo })
       .from(leykarinDenuncias)
       .where(
         and(
-          eq(leykarinDenuncias.userId, userId),
+          visibleToUserCondition(leykarinDenuncias.userId, leykarinDenuncias.orgId, userId, orgIds),
           sql`${leykarinDenuncias.estado} NOT IN ('archivada', 'concluida')`,
         )
       );

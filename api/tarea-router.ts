@@ -3,6 +3,7 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { tareas, causas } from "@db/schema";
 import { eq, desc, and, sql, lt } from "drizzle-orm";
+import { getUserOrgIds, getPrimaryOrgId, visibleToUserCondition } from "./lib/org-scope";
 
 const paginationInput = z.object({
   limit: z.number().int().positive().max(100).optional(),
@@ -33,12 +34,19 @@ export const tareaRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input?.limit ?? 20, 100);
       const cursor = input?.cursor ?? null;
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(tareas)
         .where(
           and(
-            eq(tareas.userId, ctx.user.id),
+            visibility,
             cursor ? lt(tareas.id, cursor) : undefined
           )
         )
@@ -54,10 +62,23 @@ export const tareaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const tareaVis = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      const causaVis = visibleToUserCondition(
+        causas.userId,
+        causas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const tarea = await db
         .select()
         .from(tareas)
-        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)))
+        .where(and(eq(tareas.id, input.id), tareaVis))
         .limit(1);
       if (tarea.length === 0) return null;
       let causa = null;
@@ -65,9 +86,7 @@ export const tareaRouter = createRouter({
         const causaResult = await db
           .select()
           .from(causas)
-          .where(
-            and(eq(causas.id, tarea[0].causaId), eq(causas.userId, ctx.user.id))
-          )
+          .where(and(eq(causas.id, tarea[0].causaId), causaVis))
           .limit(1);
         causa = causaResult[0] ?? null;
       }
@@ -87,10 +106,12 @@ export const tareaRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgId = await getPrimaryOrgId(ctx.user.id);
       const [result] = await db
         .insert(tareas)
         .values({
           userId: ctx.user.id,
+          orgId, // auto-share within firm when applicable
           titulo: input.titulo,
           descripcion: input.descripcion ?? null,
           tipo: input.tipo,
@@ -129,10 +150,17 @@ export const tareaRouter = createRouter({
           ? new Date(fields.fechaVencimiento)
           : null;
       }
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       await db
         .update(tareas)
         .set(update)
-        .where(and(eq(tareas.id, id), eq(tareas.userId, ctx.user.id)));
+        .where(and(eq(tareas.id, id), visibility));
       return { ok: true };
     }),
 
@@ -140,13 +168,20 @@ export const tareaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       await db
         .update(tareas)
         .set({
           estado: "completada",
           fechaCompletada: new Date(),
         })
-        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)));
+        .where(and(eq(tareas.id, input.id), visibility));
       return { ok: true };
     }),
 
@@ -154,6 +189,8 @@ export const tareaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      // Delete policy: keep strict — owner can only delete their own tareas.
+      // (Firm-wide delete by admins would need extra role check; out of scope.)
       await db
         .delete(tareas)
         .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)));
@@ -172,13 +209,20 @@ export const tareaRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input.limit ?? 20, 100);
       const cursor = input.cursor ?? null;
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(tareas)
         .where(
           and(
             eq(tareas.causaId, input.causaId),
-            eq(tareas.userId, ctx.user.id),
+            visibility,
             cursor ? lt(tareas.id, cursor) : undefined
           )
         )
@@ -204,7 +248,13 @@ export const tareaRouter = createRouter({
     const inicioStr = inicioSemana.toISOString().split("T")[0];
     const finStr = finSemana.toISOString().split("T")[0];
 
-    const userScope = eq(tareas.userId, ctx.user.id);
+    const orgIds = await getUserOrgIds(ctx.user.id);
+    const userScope = visibleToUserCondition(
+      tareas.userId,
+      tareas.orgId,
+      ctx.user.id,
+      orgIds,
+    );
 
     const vencenEstaSemana = await db
       .select()
@@ -259,10 +309,17 @@ export const tareaRouter = createRouter({
       if (input.estado === "completada") {
         update.fechaCompletada = new Date();
       }
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       await db
         .update(tareas)
         .set(update)
-        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)));
+        .where(and(eq(tareas.id, input.id), visibility));
       return { ok: true };
     }),
 });
