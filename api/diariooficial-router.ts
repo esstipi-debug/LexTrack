@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { diarioOficialNormas } from "@db/schema";
@@ -182,7 +183,10 @@ export const diarioOficialRouter = createRouter({
       fechaPublicacion: z.string(),
       extracto: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       const db = getDb();
       const values: Record<string, unknown> = {
         titulo: input.titulo,
@@ -198,7 +202,10 @@ export const diarioOficialRouter = createRouter({
 
   marcarAlerta: authedQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
       const db = getDb();
       await db.update(diarioOficialNormas).set({ alertaGenerada: true }).where(eq(diarioOficialNormas.id, input.id));
       return { ok: true };
