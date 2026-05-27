@@ -8,6 +8,8 @@ import cron, { type ScheduledTask } from "node-cron";
 import { syncPjudActiveCausas } from "./sync-pjud";
 import { syncDiarioOficialDaily } from "./sync-diario-oficial";
 import { scanDtDictamenes } from "./scan-dt-dictamenes";
+import { notifyTrialExpiring } from "./notify-trial-expiring";
+import { resumenSemanalJob } from "./resumen-semanal";
 import { createLogger } from "../lib/logger";
 
 const log = createLogger("jobs");
@@ -33,6 +35,16 @@ export const JOBS = {
     name: "scanDtDictamenes",
     schedule: "0 8 * * 1", // weekly Monday 08:00
     handler: scanDtDictamenes,
+  },
+  notifyTrialExpiring: {
+    name: "notifyTrialExpiring",
+    schedule: "0 9 * * *", // daily 09:00
+    handler: notifyTrialExpiring,
+  },
+  resumenSemanal: {
+    name: "resumenSemanal",
+    schedule: "0 8 * * 0", // weekly Sunday 08:00
+    handler: resumenSemanalJob,
   },
 } as const satisfies Record<string, JobDefinition>;
 

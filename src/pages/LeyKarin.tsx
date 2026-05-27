@@ -334,7 +334,7 @@ export default function LeyKarin() {
             </DialogContent>
           </Dialog>
           <Button asChild>
-            <Link to="/ley-karin/protocolo">
+            <Link to="/app/ley-karin/protocolo">
               <FileText className="w-4 h-4 mr-2" />
               Generar protocolo para cliente
               <ArrowRight className="w-4 h-4 ml-2" />

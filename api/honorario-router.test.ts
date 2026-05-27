@@ -10,6 +10,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 type HonorarioRow = {
   id: number;
   userId: string;
+  orgId?: number | null;
   cliente: string;
   concepto: string;
   tipo: string;
@@ -34,6 +35,13 @@ const HONORARIOS_U2: HonorarioRow[] = [
 
 const ALL_HONORARIOS = [...HONORARIOS_U1, ...HONORARIOS_U2];
 
+// Multi-firma fixture: honorarios shared within firmaA (orgId=10) vs firmaB (orgId=20).
+const FIRMA_HONORARIOS: HonorarioRow[] = [
+  { id: 7001, userId: "uA", orgId: 10, cliente: "Cliente firmaA", concepto: "Asesoría", tipo: "honorario", monto: 100000, montoPagado: 0, estado: "pendiente", fechaVencimiento: null, createdAt: BASE_DATE },
+  { id: 7002, userId: "uA", orgId: 10, cliente: "Cliente firmaA", concepto: "Defensa", tipo: "honorario", monto: 200000, montoPagado: 0, estado: "pendiente", fechaVencimiento: null, createdAt: BASE_DATE },
+  { id: 8001, userId: "uX", orgId: 20, cliente: "Cliente firmaB", concepto: "Asesoría", tipo: "honorario", monto: 150000, montoPagado: 0, estado: "pendiente", fechaVencimiento: null, createdAt: BASE_DATE },
+];
+
 let insertedValues: Record<string, unknown> | null = null;
 let updatedValues: Record<string, unknown> | null = null;
 // Track which id was queried for select-by-id
@@ -52,7 +60,14 @@ vi.mock("./queries/connection", () => {
           const userId = (globalThis as any).__userId as string;
           const cursor = (globalThis as any).__cursor as number | null;
           const filterById = (globalThis as any).__selectId as number | null;
-          let rows = ALL_HONORARIOS.filter((r) => r.userId === userId);
+          const source = (globalThis as any).__source as "all" | "firma" | undefined;
+          const orgIds = ((globalThis as any).__orgIds as number[] | undefined) ?? [];
+          const dataset = source === "firma" ? FIRMA_HONORARIOS : ALL_HONORARIOS;
+          let rows = dataset.filter((r) =>
+            source === "firma"
+              ? r.userId === userId || (r.orgId != null && orgIds.includes(r.orgId))
+              : r.userId === userId,
+          );
           if (filterById != null) {
             rows = rows.filter((r) => r.id === filterById);
           }
@@ -60,7 +75,10 @@ vi.mock("./queries/connection", () => {
           rows.sort((a, b) => b.id - a.id);
           return Promise.resolve(rows.slice(0, n));
         },
-        // Support direct await (no .limit) — for estadisticas which awaits the chain
+        // Support direct await (no .limit) — used by getUserOrgIds + estadisticas.
+        // Returns honorario rows for userId; getUserOrgIds will .map((r) => r.orgId)
+        // which yields a (possibly empty) list of undefineds — the visibility helper
+        // tolerates this since the mock's WHERE predicate is ignored anyway.
         then: (resolve: (v: HonorarioRow[]) => void) => {
           const userId = (globalThis as any).__userId as string;
           const rows = ALL_HONORARIOS.filter((r) => r.userId === userId);
@@ -68,7 +86,8 @@ vi.mock("./queries/connection", () => {
         },
         insert: (_table: unknown) => ({
           values: (v: Record<string, unknown>) => {
-            insertedValues = v;
+            // ignore audit_log inserts to keep capture focused on subject under test
+            if (!("action" in v && "tableName" in v)) insertedValues = v;
             return { $returningId: () => Promise.resolve([{ id: 888 }]) };
           },
         }),
@@ -91,6 +110,8 @@ vi.mock("drizzle-orm", async () => {
     eq: (..._args: unknown[]) => ({ _op: "eq" }),
     desc: (..._args: unknown[]) => ({ _op: "desc" }),
     and: (..._args: unknown[]) => ({ _op: "and" }),
+    or: (..._args: unknown[]) => ({ _op: "or" }),
+    inArray: (..._args: unknown[]) => ({ _op: "inArray" }),
     sql: ((..._args: unknown[]) => ({ _op: "sql" })) as any,
     lt: (..._args: unknown[]) => ({ _op: "lt" }),
   };
@@ -115,6 +136,8 @@ beforeEach(() => {
   (globalThis as any).__userId = "u1";
   (globalThis as any).__cursor = null;
   (globalThis as any).__selectId = null;
+  (globalThis as any).__source = "all";
+  (globalThis as any).__orgIds = [];
   insertedValues = null;
   updatedValues = null;
 });
@@ -216,5 +239,36 @@ describe("honorario.calcularIntereses", () => {
     const caller = honorarioRouter.createCaller(makeCtx("u1"));
     const result = await caller.calcularIntereses({ id: 50 });
     expect(result).toBeNull();
+  });
+});
+
+// ─── Multi-firma visibility ────────────────────────────────────────────────
+describe("honorario.listar — multi-firma visibility", () => {
+  it("firm member sees colleagues' honorarios in the same firm", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uB";
+    (globalThis as any).__orgIds = [10];
+    const caller = honorarioRouter.createCaller(makeCtx("uB"));
+    const result = await caller.listar({ limit: 50 });
+    const ids = result.items.map((i) => i.id).sort((a, b) => a - b);
+    expect(ids).toEqual([7001, 7002]);
+  });
+
+  it("user in other firm cannot see firmaA honorarios", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uY";
+    (globalThis as any).__orgIds = [20];
+    const caller = honorarioRouter.createCaller(makeCtx("uY"));
+    const result = await caller.listar({ limit: 50 });
+    expect(result.items.map((i) => i.id)).toEqual([8001]);
+  });
+
+  it("user with no firm sees nothing", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uZ";
+    (globalThis as any).__orgIds = [];
+    const caller = honorarioRouter.createCaller(makeCtx("uZ"));
+    const result = await caller.listar({ limit: 50 });
+    expect(result.items).toEqual([]);
   });
 });

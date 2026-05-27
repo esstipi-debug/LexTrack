@@ -11,21 +11,41 @@ import { describe, expect, it, vi } from "vitest";
  * We mock getDb() for the recuperarContexto call inside generar.
  */
 
+const __trialSubscription = {
+  id: 1,
+  userId: 1,
+  plan: "free",
+  provider: "stripe",
+  status: "trialing",
+  trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+vi.mock("@db/schema-billing", () => ({
+  subscriptions: { __name: "subscriptions" },
+}));
+
 vi.mock("./queries/connection", () => {
   return {
     getDb: () => {
-      const db: any = {
-        select: () => db,
-        from: () => db,
-        where: () => db,
-        orderBy: () => db,
-        limit: () => Promise.resolve([]),
-        // Awaiting db without .limit() — recuperarContexto awaits select().from().where()
-        then: (resolve: (v: unknown[]) => void) => {
-          return Promise.resolve([]).then(resolve);
-        },
+      const makeBuilder = (table: any) => {
+        const isSubs = table?.__name === "subscriptions";
+        const result = isSubs ? [__trialSubscription] : [];
+        const builder: any = {
+          where: () => builder,
+          orderBy: () => builder,
+          limit: () => Promise.resolve(result),
+          then: (resolve: (v: unknown[]) => void) =>
+            Promise.resolve(result).then(resolve),
+        };
+        return builder;
       };
-      return db;
+      return {
+        select: () => ({
+          from: (t: any) => makeBuilder(t),
+        }),
+      };
     },
   };
 });

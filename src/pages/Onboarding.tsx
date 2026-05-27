@@ -62,7 +62,7 @@ export default function Onboarding() {
         )}
         {step === 3 && (
           <Step3InvitaEquipo
-            onComplete={() => navigate("/")}
+            onComplete={() => navigate("/app")}
           />
         )}
       </div>

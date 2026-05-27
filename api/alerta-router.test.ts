@@ -11,6 +11,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 type AlertaRow = {
   id: number;
   userId: string;
+  orgId?: number | null;
   titulo: string;
   tipo: string;
   prioridad: string;
@@ -41,6 +42,13 @@ const ALERTAS_U2: AlertaRow[] = Array.from({ length: 5 }, (_, i) => ({
 
 const ALL_ALERTAS = [...ALERTAS_U1, ...ALERTAS_U2];
 
+// Multi-firma fixture: alertas tied to firmaA (orgId=10) vs firmaB (orgId=20).
+const FIRMA_ALERTAS: AlertaRow[] = [
+  { id: 5001, userId: "uA", orgId: 10, titulo: "Alerta firmaA #1", tipo: "system", prioridad: "media", estado: "pendiente", leidaAt: null },
+  { id: 5002, userId: "uA", orgId: 10, titulo: "Alerta firmaA #2", tipo: "system", prioridad: "alta", estado: "pendiente", leidaAt: null },
+  { id: 6001, userId: "uX", orgId: 20, titulo: "Alerta firmaB #1", tipo: "system", prioridad: "media", estado: "pendiente", leidaAt: null },
+];
+
 // Simulated insert store
 let insertedValues: Record<string, unknown> | null = null;
 let updatedValues: Record<string, unknown> | null = null;
@@ -57,16 +65,27 @@ vi.mock("./queries/connection", () => {
         limit: (n: number) => {
           const userId = (globalThis as any).__userId as string;
           const cursor = (globalThis as any).__cursor as number | null;
-          let rows = ALL_ALERTAS.filter((r) => r.userId === userId);
+          const source = (globalThis as any).__source as "all" | "firma" | undefined;
+          const orgIds = ((globalThis as any).__orgIds as number[] | undefined) ?? [];
+          const dataset = source === "firma" ? FIRMA_ALERTAS : ALL_ALERTAS;
+          let rows = dataset.filter((r) =>
+            source === "firma"
+              ? r.userId === userId || (r.orgId != null && orgIds.includes(r.orgId))
+              : r.userId === userId,
+          );
           if (cursor != null) rows = rows.filter((r) => r.id < cursor);
           rows.sort((a, b) => b.id - a.id);
           return Promise.resolve(rows.slice(0, n));
         },
-        then: (resolve: (v: AlertaRow[]) => void) => {
-          // Support awaiting db chain without .limit() — used by dashboard queries
-          const userId = (globalThis as any).__userId as string;
-          const rows = ALL_ALERTAS.filter((r) => r.userId === userId);
-          return Promise.resolve(rows).then(resolve);
+        then: (resolve: (v: unknown[]) => void) => {
+          // Awaited db.select(...).from(...).where(...) — drives both
+          //  (a) getUserOrgIds — router calls .map((r) => r.orgId)
+          //  (b) dashboard count queries — router calls rows[0]?.count etc.
+          // Returning orgId-shaped rows works for (a) and is benign for (b)
+          // because the existing dashboard test only asserts result shape,
+          // not actual count values (which were also nonsense before).
+          const orgIds = ((globalThis as any).__orgIds as number[] | undefined) ?? [];
+          return Promise.resolve(orgIds.map((id) => ({ orgId: id }))).then(resolve);
         },
         insert: (_table: unknown) => ({
           values: (v: Record<string, unknown>) => {
@@ -98,6 +117,8 @@ vi.mock("drizzle-orm", async () => {
     eq: (..._args: unknown[]) => ({ _op: "eq" }),
     desc: (..._args: unknown[]) => ({ _op: "desc" }),
     and: (..._args: unknown[]) => ({ _op: "and" }),
+    or: (..._args: unknown[]) => ({ _op: "or" }),
+    inArray: (..._args: unknown[]) => ({ _op: "inArray" }),
     sql: ((..._args: unknown[]) => ({ _op: "sql" })) as any,
     lt: (..._args: unknown[]) => ({ _op: "lt" }),
   };
@@ -114,6 +135,8 @@ function makeCtx(userId: string) {
 beforeEach(() => {
   (globalThis as any).__userId = "u1";
   (globalThis as any).__cursor = null;
+  (globalThis as any).__source = "all";
+  (globalThis as any).__orgIds = [];
   insertedValues = null;
   updatedValues = null;
 });
@@ -200,5 +223,42 @@ describe("alerta.dashboard", () => {
     expect(typeof result.totalArchivadas).toBe("number");
     expect(Array.isArray(result.porTipo)).toBe(true);
     expect(Array.isArray(result.porPrioridad)).toBe(true);
+  });
+});
+
+// ─── Multi-firma visibility ────────────────────────────────────────────────
+//
+// FIRMA_ALERTAS:
+//   id=5001 uA orgId=10  (firmaA)
+//   id=5002 uA orgId=10  (firmaA)
+//   id=6001 uX orgId=20  (firmaB)
+//
+describe("alerta.listar — multi-firma visibility", () => {
+  it("member of firmaA who didn't create the alertas still sees them", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uB";
+    (globalThis as any).__orgIds = [10];
+    const caller = alertaRouter.createCaller(makeCtx("uB"));
+    const result = await caller.listar({ limit: 50 });
+    const ids = result.items.map((i) => i.id).sort((a, b) => a - b);
+    expect(ids).toEqual([5001, 5002]);
+  });
+
+  it("user in firmaB cannot see firmaA alertas", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uY";
+    (globalThis as any).__orgIds = [20];
+    const caller = alertaRouter.createCaller(makeCtx("uY"));
+    const result = await caller.listar({ limit: 50 });
+    expect(result.items.map((i) => i.id)).toEqual([6001]);
+  });
+
+  it("user with no firm sees no firm alertas", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uZ";
+    (globalThis as any).__orgIds = [];
+    const caller = alertaRouter.createCaller(makeCtx("uZ"));
+    const result = await caller.listar({ limit: 50 });
+    expect(result.items).toEqual([]);
   });
 });

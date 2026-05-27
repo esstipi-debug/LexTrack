@@ -6,13 +6,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * The router performs many SQL aggregation queries via getDb().
  * We mock getDb() to return a chainable builder that resolves
  * deterministic count rows so we can assert the response shape
- * and userId scoping without a real DB connection.
+ * without a real DB connection.
  */
-
-// ── Mock state ────────────────────────────────────────────────────────────────
-
-// Track the userId values passed through eq() calls so we can assert scoping.
-const capturedUserIds: unknown[] = [];
 
 // ── DB mock ───────────────────────────────────────────────────────────────────
 
@@ -48,17 +43,27 @@ vi.mock("./queries/connection", () => {
   };
 });
 
+// ── org-scope mock ────────────────────────────────────────────────────────────
+
+const mockGetUserOrgIds = vi.fn().mockResolvedValue([]);
+
+vi.mock("./lib/org-scope", async () => {
+  const actual = await vi.importActual<typeof import("./lib/org-scope")>("./lib/org-scope");
+  return {
+    ...actual,
+    getUserOrgIds: (...args: unknown[]) => mockGetUserOrgIds(...args),
+  };
+});
+
 // ── drizzle-orm stubs ─────────────────────────────────────────────────────────
 
 vi.mock("drizzle-orm", async () => {
   const actual = await vi.importActual<typeof import("drizzle-orm")>("drizzle-orm");
   return {
     ...actual,
-    eq: (...args: unknown[]) => {
-      // Capture userId-like values passed as second arg to eq()
-      if (typeof args[1] === "string") capturedUserIds.push(args[1]);
-      return { _op: "eq" };
-    },
+    eq: (..._args: unknown[]) => ({ _op: "eq" }),
+    or: (..._args: unknown[]) => ({ _op: "or" }),
+    inArray: (..._args: unknown[]) => ({ _op: "inArray" }),
     and: (..._args: unknown[]) => ({ _op: "and" }),
     sql: ((..._args: unknown[]) => ({ _op: "sql" })) as any,
     count: () => "count_agg",
@@ -74,21 +79,22 @@ vi.mock("drizzle-orm", async () => {
 
 const { statsRouter } = await import("./stats-router");
 
-function makeCtx(userId = "u1") {
+function makeCtx(userId: number = 1) {
   return {
-    user: { id: userId, role: "abogado" as const, email: `${userId}@test.cl` },
+    user: { id: userId, role: "abogado" as const, email: `u${userId}@test.cl` },
   } as any;
 }
 
 beforeEach(() => {
-  capturedUserIds.length = 0;
+  mockGetUserOrgIds.mockClear();
+  mockGetUserOrgIds.mockResolvedValue([]);
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("stats.dashboard — response shape", () => {
   it("returns the expected top-level shape with causas, tareas, alertas, honorarios", async () => {
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+    const caller = statsRouter.createCaller(makeCtx(1));
     const result = await caller.dashboard();
 
     // Top-level keys
@@ -102,7 +108,7 @@ describe("stats.dashboard — response shape", () => {
   });
 
   it("causas sub-object has expected numeric fields", async () => {
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+    const caller = statsRouter.createCaller(makeCtx(1));
     const result = await caller.dashboard();
 
     expect(typeof result.causas.total).toBe("number");
@@ -112,7 +118,7 @@ describe("stats.dashboard — response shape", () => {
   });
 
   it("tareas sub-object has expected numeric fields", async () => {
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+    const caller = statsRouter.createCaller(makeCtx(1));
     const result = await caller.dashboard();
 
     expect(typeof result.tareas.total).toBe("number");
@@ -123,7 +129,7 @@ describe("stats.dashboard — response shape", () => {
   });
 
   it("honorarios sub-object has expected numeric fields (not strings, not undefined)", async () => {
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+    const caller = statsRouter.createCaller(makeCtx(1));
     const result = await caller.dashboard();
 
     expect(typeof result.honorarios.totalFacturado).toBe("number");
@@ -133,24 +139,47 @@ describe("stats.dashboard — response shape", () => {
   });
 });
 
-describe("stats.dashboard — userId scoping", () => {
-  it("passes userId to every DB query (appears in eq() calls)", async () => {
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+describe("stats.dashboard — org scope", () => {
+  it("calls getUserOrgIds with the caller's userId", async () => {
+    const caller = statsRouter.createCaller(makeCtx(42));
     await caller.dashboard();
 
-    // The router calls eq(table.userId, userId) for every sub-query.
-    // Our eq() stub captures the second arg when it is a string.
-    expect(capturedUserIds.length).toBeGreaterThan(0);
-    // Every captured id should match the caller's userId.
-    capturedUserIds.forEach((id) => expect(id).toBe("u1"));
+    expect(mockGetUserOrgIds).toHaveBeenCalledWith(42);
   });
 
-  it("different callers get different userId passed to queries", async () => {
-    const caller2 = statsRouter.createCaller(makeCtx("u2"));
+  it("works correctly when user has no org (orgIds = [])", async () => {
+    mockGetUserOrgIds.mockResolvedValue([]);
+
+    const caller = statsRouter.createCaller(makeCtx(1));
+    const result = await caller.dashboard();
+
+    // Should complete without errors and return expected shape
+    expect(result).toHaveProperty("causas");
+    expect(result).toHaveProperty("tareas");
+    expect(result).toHaveProperty("honorarios");
+    expect(result).toHaveProperty("leyKarin");
+    expect(mockGetUserOrgIds).toHaveBeenCalledOnce();
+  });
+
+  it("works correctly when user belongs to an org (orgIds = [42])", async () => {
+    mockGetUserOrgIds.mockResolvedValue([42]);
+
+    const caller = statsRouter.createCaller(makeCtx(1));
+    const result = await caller.dashboard();
+
+    // Should complete without errors and return expected shape
+    expect(result).toHaveProperty("causas");
+    expect(result).toHaveProperty("tareas");
+    expect(result).toHaveProperty("honorarios");
+    expect(result).toHaveProperty("leyKarin");
+    expect(mockGetUserOrgIds).toHaveBeenCalledWith(1);
+  });
+
+  it("different callers call getUserOrgIds with their own userId", async () => {
+    const caller2 = statsRouter.createCaller(makeCtx(99));
     await caller2.dashboard();
 
-    const u2Ids = capturedUserIds.filter((id) => id === "u2");
-    expect(u2Ids.length).toBeGreaterThan(0);
+    expect(mockGetUserOrgIds).toHaveBeenCalledWith(99);
   });
 });
 
@@ -175,7 +204,7 @@ describe("stats.dashboard — zero data", () => {
 
     // Use the already-imported module (mocked at top-level above)
     // The router reads total via `?? 0` so zero rows return 0, not null.
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+    const caller = statsRouter.createCaller(makeCtx(1));
     const result = await caller.dashboard();
 
     // All numeric fields must be numbers (0), not null or undefined.
@@ -193,7 +222,7 @@ describe("stats.dashboard — zero data", () => {
 
 describe("stats.dashboard — actividadReciente", () => {
   it("actividadReciente is an array scoped to userId", async () => {
-    const caller = statsRouter.createCaller(makeCtx("u1"));
+    const caller = statsRouter.createCaller(makeCtx(1));
     const result = await caller.dashboard();
 
     expect(Array.isArray(result.actividadReciente)).toBe(true);

@@ -403,6 +403,7 @@ export const causas = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     rit: varchar("rit", { length: 50 }).notNull(),
     ruc: varchar("ruc", { length: 50 }),
     rol: varchar("rol", { length: 50 }),
@@ -433,6 +434,7 @@ export const causas = pgTable(
     estadoIdx: index("causa_estado_idx").on(table.estado),
     expedienteIdx: index("expediente_idx").on(table.expedienteId),
     userIdIdx: index("causas_user_id_idx").on(table.userId),
+    orgIdIdx: index("causas_org_id_idx").on(table.orgId),
   })
 );
 
@@ -447,6 +449,7 @@ export const alertas = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     causaId: bigint("causaId", { mode: "number" }),
     expedienteId: bigint("expedienteId", { mode: "number" }),
     tipo: alertaTipoEnum("tipo").default("nuevo_movimiento").notNull(),
@@ -467,6 +470,7 @@ export const alertas = pgTable(
     estadoIdx: index("alerta_estado_idx").on(table.estado),
     prioridadIdx: index("prioridad_idx").on(table.prioridad),
     userIdIdx: index("alertas_user_id_idx").on(table.userId),
+    orgIdIdx: index("alertas_org_id_idx").on(table.orgId),
   })
 );
 
@@ -481,6 +485,7 @@ export const tareas = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     titulo: varchar("titulo", { length: 255 }).notNull(),
     descripcion: text("descripcion"),
     causaId: bigint("causaId", { mode: "number" }),
@@ -504,6 +509,7 @@ export const tareas = pgTable(
     asignadoIdx: index("asignado_idx").on(table.asignadoA),
     vencimientoIdx: index("vencimiento_idx").on(table.fechaVencimiento),
     userIdIdx: index("tareas_user_id_idx").on(table.userId),
+    orgIdIdx: index("tareas_org_id_idx").on(table.orgId),
   })
 );
 
@@ -654,6 +660,7 @@ export const checklistEjecuciones = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     templateId: bigint("templateId", { mode: "number" }).notNull().references(() => checklistTemplates.id),
     causaId: bigint("causaId", { mode: "number" }),
     expedienteId: bigint("expedienteId", { mode: "number" }),
@@ -670,6 +677,7 @@ export const checklistEjecuciones = pgTable(
     templateIdx: index("ce_template_idx").on(table.templateId),
     causaIdx: index("ce_causa_idx").on(table.causaId),
     userIdIdx: index("ce_user_id_idx").on(table.userId),
+    orgIdIdx: index("ce_org_id_idx").on(table.orgId),
   })
 );
 
@@ -856,6 +864,7 @@ export const leykarinDenuncias = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     codigo: varchar("codigo", { length: 50 }).notNull().unique(),
     fechaRecepcion: date("fechaRecepcion").notNull(),
     fechaHechos: date("fechaHechos"),
@@ -892,6 +901,7 @@ export const leykarinDenuncias = pgTable(
     prioridadIdx: index("lk_prioridad_idx").on(table.prioridad),
     denunciadoIdx: index("lk_denunciado_idx").on(table.denunciado),
     userIdIdx: index("lk_user_id_idx").on(table.userId),
+    orgIdIdx: index("lk_org_id_idx").on(table.orgId),
   })
 );
 
@@ -906,6 +916,7 @@ export const leykarinActuaciones = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     denunciaId: bigint("denunciaId", { mode: "number" }).notNull(),
     fecha: date("fecha").notNull(),
     tipo: leykarinActuacionTipoEnum("tipo").default("recepcion").notNull(),
@@ -919,6 +930,7 @@ export const leykarinActuaciones = pgTable(
   (table) => ({
     denunciaIdx: index("lkact_denuncia_idx").on(table.denunciaId),
     userIdIdx: index("lkact_user_id_idx").on(table.userId),
+    orgIdIdx: index("lkact_org_id_idx").on(table.orgId),
   })
 );
 
@@ -932,6 +944,7 @@ export const leykarinMedidas = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     denunciaId: bigint("denunciaId", { mode: "number" }).notNull(),
     tipo: leykarinMedidaTipoEnum("tipo").notNull(),
     descripcion: text("descripcion").notNull(),
@@ -944,6 +957,7 @@ export const leykarinMedidas = pgTable(
     denunciaIdx: index("lkmed_denuncia_idx").on(table.denunciaId),
     estadoIdx: index("lkmed_estado_idx").on(table.estado),
     userIdIdx: index("lkmed_user_id_idx").on(table.userId),
+    orgIdIdx: index("lkmed_org_id_idx").on(table.orgId),
   })
 );
 
@@ -958,6 +972,7 @@ export const honorarios = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    orgId: bigint("orgId", { mode: "number" }),
     causaId: bigint("causaId", { mode: "number" }),
     expedienteId: bigint("expedienteId", { mode: "number" }),
     cliente: varchar("cliente", { length: 255 }).notNull(),
@@ -983,6 +998,7 @@ export const honorarios = pgTable(
     estadoIdx: index("hon_estado_idx").on(table.estado),
     vencimientoIdx: index("hon_vencimiento_idx").on(table.fechaVencimiento),
     userIdIdx: index("hon_user_id_idx").on(table.userId),
+    orgIdIdx: index("hon_org_id_idx").on(table.orgId),
   })
 );
 
@@ -1086,3 +1102,33 @@ export const invites = pgTable(
 
 export type Invite = typeof invites.$inferSelect;
 export type InsertInvite = typeof invites.$inferInsert;
+
+// ─── Audit Log ───────────────────────────────────────────────────
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: serial("id").primaryKey(),
+    userId: bigint("userId", { mode: "number" }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    action: varchar("action", { length: 64 }).notNull(),
+    tableName: varchar("tableName", { length: 64 }).notNull(),
+    recordId: varchar("recordId", { length: 64 }),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("userAgent", { length: 512 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => ({
+    userIdIdx: index("audit_log_userId_idx").on(table.userId),
+    tableRecordIdx: index("audit_log_table_record_idx").on(
+      table.tableName,
+      table.recordId
+    ),
+    createdAtIdx: index("audit_log_createdAt_idx").on(table.createdAt),
+  })
+);
+
+export type AuditLog = typeof auditLog.$inferSelect;
+export type InsertAuditLog = typeof auditLog.$inferInsert;

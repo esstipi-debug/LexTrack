@@ -60,7 +60,17 @@ LexTrack integra varios scrapers de fuentes oficiales chilenas. Todos siguen el 
 | Diario Oficial | `DIARIO_OFICIAL_SCRAPER` | `simulator` | `diariooficial.interior.gob.cl` |
 | Corte Suprema (jurisprudencia) | `SUPREMA_SCRAPER` | `simulator` | `suprema.pjud.cl` |
 
-Cada scraper expone errores tipados (`*UnavailableError`, `*NotFoundError`) y reusa un único navegador Chromium por proceso (`closeBrowser()` para liberar en shutdown).
+Cada scraper expone errores tipados (`*UnavailableError`, `*NotFoundError`). El ciclo de vida del navegador (launch / page / teardown), reintentos con backoff exponencial y screenshots de debug viven en el helper compartido `api/jobs/lib/playwright-helpers.ts`. Ver [`docs/SCRAPERS.md`](docs/SCRAPERS.md) para el workflow de campo (verificación de selectores contra el DOM real, anti-detección).
+
+### Scraper config (env vars)
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `PLAYWRIGHT_HEADLESS` | `true` | `false` para abrir Chromium con ventana (debugging interactivo). |
+| `SCRAPER_TIMEOUT_MS` | `30000` | Timeout por defecto para selectores y navegación. |
+| `SCRAPER_USER_AGENT` | `Mozilla/5.0 (compatible; LexTrack/1.0)` | UA string usado por todos los scrapers. |
+| `SCRAPER_DEBUG` | `false` | `true` para guardar screenshots al fallar un scrape. |
+| `SCRAPER_DEBUG_DIR` | `./debug` | Carpeta donde se escriben los screenshots de debug. |
 
 ## PJUD Scraper
 

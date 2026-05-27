@@ -12,6 +12,7 @@ import {
   cancelSubscriptionAtPeriodEnd,
 } from './lib/billing/stripe';
 import { createMpPreference, handleMpWebhook } from './lib/billing/mercadopago';
+import { auditFromCtx } from './lib/audit';
 
 export const billingRouter = createRouter({
   // ─── Public: list all plans ────────────────────────────────────────
@@ -53,6 +54,12 @@ export const billingRouter = createRouter({
           cancelUrl,
           pendingUrl,
         );
+        // audit
+        await auditFromCtx(ctx, {
+          action: 'billing.subscribe',
+          tableName: 'subscriptions',
+          after: { plan: input.plan, provider: input.provider },
+        });
         return { url: data.initPoint };
       }
 
@@ -63,6 +70,12 @@ export const billingRouter = createRouter({
         successUrl,
         cancelUrl,
       );
+      // audit
+      await auditFromCtx(ctx, {
+        action: 'billing.subscribe',
+        tableName: 'subscriptions',
+        after: { plan: input.plan, provider: input.provider },
+      });
       return { url };
     }),
 
@@ -271,6 +284,15 @@ export const billingRouter = createRouter({
       .update(subscriptions)
       .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
       .where(eq(subscriptions.userId, ctx.user.id));
+
+    // audit
+    await auditFromCtx(ctx, {
+      action: 'billing.cancel',
+      tableName: 'subscriptions',
+      recordId: sub.id,
+      before: { plan: sub.plan, cancelAtPeriodEnd: sub.cancelAtPeriodEnd },
+      after: { cancelAtPeriodEnd: true },
+    });
 
     return { ok: true };
   }),

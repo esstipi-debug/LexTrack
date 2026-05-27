@@ -59,7 +59,7 @@ export function alertaNuevosMovimientosPJUD(
   p: AlertaNuevosMovimientosPJUDParams,
 ): EmailTemplate {
   const subject = `[LexTrack] Nuevos movimientos en causa ${p.causa.rit}`;
-  const causaUrl = `${APP_URL}/causas/${p.causa.id}`;
+  const causaUrl = `${APP_URL}/app/causas/${p.causa.id}`;
 
   const movRows = p.movimientos
     .map(
@@ -144,7 +144,7 @@ export interface BienvenidaParams {
 
 export function bienvenida(p: BienvenidaParams): EmailTemplate {
   const subject = `Bienvenido/a a LexTrack, ${p.nombre}`;
-  const dashboardUrl = `${APP_URL}/dashboard`;
+  const dashboardUrl = `${APP_URL}/app`;
 
   const features = [
     {
@@ -207,16 +207,16 @@ export interface ResumenSemanalParams {
 
 export function resumenSemanal(p: ResumenSemanalParams): EmailTemplate {
   const subject = `[LexTrack] Tu resumen semanal`;
-  const dashboardUrl = `${APP_URL}/dashboard`;
-  const tareasUrl = `${APP_URL}/tareas`;
-  const alertasUrl = `${APP_URL}/alertas`;
+  const dashboardUrl = `${APP_URL}/app`;
+  const tareasUrl = `${APP_URL}/app/tareas`;
+  const alertasUrl = `${APP_URL}/app/alertas`;
 
   const stats = [
     {
       label: "Causas activas",
       value: p.causasActivas,
       color: "#1e3a5f",
-      url: `${APP_URL}/causas`,
+      url: `${APP_URL}/app/causas`,
     },
     {
       label: "Tareas vencidas",
@@ -263,6 +263,105 @@ export function resumenSemanal(p: ResumenSemanalParams): EmailTemplate {
   `);
 
   const text = `[LexTrack] Tu resumen semanal\n\nHola ${p.nombre},\n\nResumen de esta semana:\n- Causas activas: ${p.causasActivas}\n- Tareas vencidas: ${p.tareasVencidas}\n- Alertas no leídas: ${p.alertasNoLeidas}\n\nAccede a tu panel: ${dashboardUrl}\n\n— LexTrack`;
+
+  return { subject, html, text };
+}
+
+// ── Template: Invitación a miembro de organización ─────────────────
+
+export interface InviteMiembroParams {
+  invitadoEmail: string;
+  invitadorNombre: string;
+  invitadorEmail: string;
+  orgNombre: string;
+  role: "admin" | "member";
+  inviteUrl: string;
+  expiresAt: Date;
+}
+
+export function inviteMiembro(p: InviteMiembroParams): EmailTemplate {
+  const subject = `[LexTrack] ${p.invitadorNombre} te invitó a unirte a ${p.orgNombre}`;
+  const roleLabel = p.role === "admin" ? "Administrador" : "Miembro";
+  const fechaExpira = p.expiresAt.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  const html = htmlWrap(`
+    <h2 style="margin-top:0;font-size:18px;color:#1e3a5f;">Te invitaron a una organización en LexTrack</h2>
+    <p style="font-size:14px;color:#374151;">Hola,</p>
+    <p style="font-size:14px;color:#374151;">
+      <strong>${p.invitadorNombre}</strong> (${p.invitadorEmail}) te invitó a colaborar en
+      <strong>${p.orgNombre}</strong> como <strong>${roleLabel}</strong>.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:16px 0;">
+      <tr>
+        <td style="padding:6px 0;font-size:13px;color:#6b7280;width:140px;">Organización</td>
+        <td style="padding:6px 0;font-size:13px;font-weight:600;">${p.orgNombre}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;font-size:13px;color:#6b7280;">Rol</td>
+        <td style="padding:6px 0;font-size:13px;font-weight:600;">${roleLabel}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 0;font-size:13px;color:#6b7280;">Invitado por</td>
+        <td style="padding:6px 0;font-size:13px;">${p.invitadorNombre} &lt;${p.invitadorEmail}&gt;</td>
+      </tr>
+    </table>
+    ${btn(p.inviteUrl, "Aceptar invitación")}
+    <p style="font-size:12px;color:#9ca3af;margin-top:24px;">
+      Esta invitación expira el ${fechaExpira}.
+    </p>
+    <p style="font-size:12px;color:#9ca3af;margin-top:8px;">
+      Si no esperabas esta invitación, puedes ignorar este correo.
+    </p>
+  `);
+
+  const text = `${subject}\n\nHola,\n\n${p.invitadorNombre} (${p.invitadorEmail}) te invitó a colaborar en ${p.orgNombre} como ${roleLabel}.\n\nOrganización: ${p.orgNombre}\nRol: ${roleLabel}\nInvitado por: ${p.invitadorNombre} <${p.invitadorEmail}>\n\nAceptar invitación: ${p.inviteUrl}\n\nEsta invitación expira el ${fechaExpira}.\n\nSi no esperabas esta invitación, puedes ignorar este correo.\n\n— LexTrack`;
+
+  return { subject, html, text };
+}
+
+// ── Template 5: Trial expirando ────────────────────────────────────
+
+export interface TrialExpirandoParams {
+  nombre: string;
+  diasRestantes: number;
+  trialEndsAt: Date;
+}
+
+export function trialExpirando(p: TrialExpirandoParams): EmailTemplate {
+  const subject = `[LexTrack] Tu prueba gratis termina en ${p.diasRestantes} día${p.diasRestantes === 1 ? "" : "s"}`;
+  const billingUrl = `${APP_URL}/app/billing`;
+  const fechaFin = p.trialEndsAt.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  const html = htmlWrap(`
+    <h2 style="margin-top:0;font-size:18px;color:#1e3a5f;">Tu prueba gratis termina pronto</h2>
+    <p style="font-size:14px;color:#374151;">Hola <strong>${p.nombre}</strong>,</p>
+    <p style="font-size:14px;color:#374151;">
+      Tu periodo de prueba de 14 días termina el <strong>${fechaFin}</strong>
+      (${p.diasRestantes} día${p.diasRestantes === 1 ? "" : "s"} restante${p.diasRestantes === 1 ? "" : "s"}).
+      Activa un plan para no perder acceso a las funciones avanzadas.
+    </p>
+    <h3 style="font-size:14px;color:#1e3a5f;margin-top:20px;">Qué pierdes si no activas:</h3>
+    <ul style="font-size:13px;color:#374151;padding-left:20px;line-height:1.6;">
+      <li>Asistente IA y generador de documentos</li>
+      <li>Sincronización automática con PJUD</li>
+      <li>Alertas del Diario Oficial y Dictámenes DT</li>
+      <li>Análisis de causas con IA</li>
+    </ul>
+    <p style="font-size:13px;color:#6b7280;margin-top:16px;">
+      Tus causas y datos siguen guardados, pero las funciones avanzadas quedarán bloqueadas hasta activar un plan.
+    </p>
+    ${btn(billingUrl, "Activar un plan")}
+  `);
+
+  const text = `${subject}\n\nHola ${p.nombre},\n\nTu prueba gratis termina el ${fechaFin} (${p.diasRestantes} día(s) restante(s)).\n\nQué pierdes si no activas:\n- Asistente IA y generador de documentos\n- Sincronización automática con PJUD\n- Alertas del Diario Oficial y Dictámenes DT\n- Análisis de causas con IA\n\nActiva un plan: ${billingUrl}\n\n— LexTrack`;
 
   return { subject, html, text };
 }

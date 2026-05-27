@@ -9,6 +9,9 @@ import { Errors } from "@contracts/errors";
 import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
+import { initializeTrial } from "../lib/billing";
+import { sendEmail } from "../lib/email/send";
+import { bienvenida } from "../lib/email/templates";
 import { createLogger } from "../lib/logger";
 import type { TokenResponse } from "./types";
 
@@ -118,12 +121,26 @@ export function createOAuthCallbackHandler() {
         throw new Error("Failed to fetch user profile from Kimi Open");
       }
 
-      await upsertUser({
+      const { user: dbUser, isNew } = await upsertUser({
         unionId: userId,
         name: userProfile.name,
         avatar: userProfile.avatar_url,
         lastSignInAt: new Date(),
       });
+
+      if (isNew && dbUser?.id) {
+        // Fire-and-forget: trial + welcome email must never block login.
+        await initializeTrial(dbUser.id);
+        if (dbUser.email) {
+          void sendEmail({
+            to: dbUser.email,
+            template: bienvenida({
+              nombre: dbUser.name ?? dbUser.email,
+              email: dbUser.email,
+            }),
+          }).catch((err) => log.error({ err }, "welcome email failed"));
+        }
+      }
 
       const token = await signSessionToken({
         unionId: userId,

@@ -5,6 +5,8 @@ import { getDb } from "./queries/connection";
 import { causas, tareas, alertas, cronologia, notas } from "@db/schema";
 import { subscriptions } from "../db/schema-billing";
 import { eq, desc, sql, and, lt, count } from "drizzle-orm";
+import { auditFromCtx } from "./lib/audit";
+import { getUserOrgIds, getPrimaryOrgId, visibleToUserCondition } from "./lib/org-scope";
 
 async function checkPlanLimit(userId: number, db: ReturnType<typeof getDb>) {
   // Get user's current plan from subscriptions table
@@ -18,6 +20,8 @@ async function checkPlanLimit(userId: number, db: ReturnType<typeof getDb>) {
 
   if (limit === Infinity) return; // pro has no limit
 
+  // Plan limit applies per-user (matches existing legacy semantics — a user can
+  // only create N personal causas; firm-shared causas counted via their author).
   const [{ count: currentCount }] = await db.select({ count: count() })
     .from(causas)
     .where(eq(causas.userId, userId));
@@ -42,15 +46,19 @@ export const causaRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input?.limit ?? 20, 100);
       const cursor = input?.cursor ?? null;
-      // NOTE: primary sort kept by id desc (which approximates createdAt desc
-      // for newest-first cursor pagination). TODO: keep createdAt primary
-      // sort with (createdAt, id) compound cursor if needed.
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        causas.userId,
+        causas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(causas)
         .where(
           and(
-            eq(causas.userId, ctx.user.id),
+            visibility,
             cursor ? lt(causas.id, cursor) : undefined
           )
         )
@@ -83,10 +91,21 @@ export const causaRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       await checkPlanLimit(ctx.user.id, db);
-      const values: Record<string, unknown> = { ...input, userId: ctx.user.id };
+      const orgId = await getPrimaryOrgId(ctx.user.id);
+      const values: Record<string, unknown> = {
+        ...input,
+        userId: ctx.user.id,
+        orgId, // null if user has no firm; firm id otherwise (auto-share within firm)
+      };
       if (input.fechaIngreso) values.fechaIngreso = new Date(input.fechaIngreso);
       delete (values as any).datos;
       await db.insert(causas).values(values as any);
+      // audit
+      await auditFromCtx(ctx, {
+        action: "causa.create",
+        tableName: "causas",
+        after: values,
+      });
       return { ok: true };
     }),
 
@@ -94,20 +113,40 @@ export const causaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const causaVis = visibleToUserCondition(
+        causas.userId,
+        causas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const causa = await db
         .select()
         .from(causas)
-        .where(and(eq(causas.id, input.id), eq(causas.userId, ctx.user.id)))
+        .where(and(eq(causas.id, input.id), causaVis))
         .limit(1);
       if (causa.length === 0) return null;
+      const tareaVis = visibleToUserCondition(
+        tareas.userId,
+        tareas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      const alertaVis = visibleToUserCondition(
+        alertas.userId,
+        alertas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      // cronologia & notas stay per-user — these tables do not (yet) carry orgId.
       const tareasCausa = await db
         .select()
         .from(tareas)
-        .where(and(eq(tareas.causaId, input.id), eq(tareas.userId, ctx.user.id)));
+        .where(and(eq(tareas.causaId, input.id), tareaVis));
       const alertasCausa = await db
         .select()
         .from(alertas)
-        .where(and(eq(alertas.causaId, input.id), eq(alertas.userId, ctx.user.id)));
+        .where(and(eq(alertas.causaId, input.id), alertaVis));
       const cronologiaCausa = await db
         .select()
         .from(cronologia)
@@ -147,10 +186,31 @@ export const causaRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        causas.userId,
+        causas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      // fetch before for audit
+      const [before] = await db
+        .select()
+        .from(causas)
+        .where(and(eq(causas.id, input.id), visibility))
+        .limit(1);
       await db
         .update(causas)
         .set(input.datos)
-        .where(and(eq(causas.id, input.id), eq(causas.userId, ctx.user.id)));
+        .where(and(eq(causas.id, input.id), visibility));
+      // audit
+      await auditFromCtx(ctx, {
+        action: "causa.update",
+        tableName: "causas",
+        recordId: input.id,
+        before: before ?? null,
+        after: input.datos,
+      });
       return { ok: true };
     }),
 
@@ -158,12 +218,19 @@ export const causaRouter = createRouter({
     .input(z.object({ termino: z.string() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        causas.userId,
+        causas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       return db
         .select()
         .from(causas)
         .where(
           and(
-            eq(causas.userId, ctx.user.id),
+            visibility,
             sql`${causas.caratula} ILIKE ${"%" + input.termino + "%"} OR ${causas.rit} ILIKE ${"%" + input.termino + "%"} OR ${causas.ruc} ILIKE ${"%" + input.termino + "%"}`
           )
         )

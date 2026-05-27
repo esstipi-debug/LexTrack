@@ -73,28 +73,28 @@ const actions = [
   {
     title: "Asistente",
     desc: "Normativa y jurisprudencia con citas",
-    to: "/asistente",
+    to: "/app/asistente",
     icon: MessageSquare,
     color: "text-blue-600",
   },
   {
     title: "Calcular",
     desc: "Indemnización, finiquito, horas extra",
-    to: "/generador?tab=calculadora",
+    to: "/app/generador?tab=calculadora",
     icon: Calculator,
     color: "text-green-600",
   },
   {
     title: "Escribir",
     desc: "Cartas, demandas, finiquitos guiados",
-    to: "/generador?tab=documentos",
+    to: "/app/generador?tab=documentos",
     icon: FilePen,
     color: "text-amber-600",
   },
   {
     title: "Nueva Tarea",
     desc: "Registrar y hacer seguimiento",
-    to: "/tareas",
+    to: "/app/tareas",
     icon: ClipboardList,
     color: "text-violet-600",
   },
@@ -130,7 +130,7 @@ export default function Home() {
       icon: Briefcase,
       iconColor: "text-blue-600",
       bgColor: "bg-blue-50 dark:bg-blue-950/20",
-      to: "/causas",
+      to: "/app/causas",
       extra: dashboard?.tendencias ? (
         <TrendBadge
           current={dashboard.tendencias.causasEsteMes}
@@ -152,7 +152,7 @@ export default function Home() {
         (dashboard?.tareas.vencidas ?? 0) > 0
           ? "bg-red-50 dark:bg-red-950/20"
           : "bg-violet-50 dark:bg-violet-950/20",
-      to: "/tareas",
+      to: "/app/tareas",
       extra:
         (dashboard?.tareas.vencidas ?? 0) > 0 ? (
           <Badge variant="destructive" className="text-[10px] py-0">
@@ -178,7 +178,7 @@ export default function Home() {
         (dashboard?.alertas.porPrioridad?.["critica"] ?? 0) > 0
           ? "bg-red-50 dark:bg-red-950/20"
           : "bg-amber-50 dark:bg-amber-950/20",
-      to: "/alertas",
+      to: "/app/alertas",
       extra:
         (dashboard?.alertas.porPrioridad?.["critica"] ?? 0) > 0 ? (
           <Badge variant="destructive" className="text-[10px] py-0">
@@ -194,7 +194,7 @@ export default function Home() {
       icon: DollarSign,
       iconColor: "text-green-600",
       bgColor: "bg-green-50 dark:bg-green-950/20",
-      to: "/honorarios",
+      to: "/app/honorarios",
       extra:
         (dashboard?.honorarios.morosidad ?? 0) > 0 ? (
           <span className="text-xs text-red-600 font-medium">
@@ -213,7 +213,7 @@ export default function Home() {
         (dashboard?.leyKarin.urgentes ?? 0) > 0
           ? "bg-red-50 dark:bg-red-950/20"
           : "bg-violet-50 dark:bg-violet-950/20",
-      to: "/ley-karin",
+      to: "/app/ley-karin",
       extra:
         (dashboard?.leyKarin.urgentes ?? 0) > 0 ? (
           <Badge variant="destructive" className="text-[10px] py-0">
@@ -234,7 +234,7 @@ export default function Home() {
         (dashboard?.tareas.proximas7dias ?? 0) > 0
           ? "bg-amber-50 dark:bg-amber-950/20"
           : "bg-gray-50 dark:bg-neutral-900",
-      to: "/tareas",
+      to: "/app/tareas",
       extra: dashboard?.tendencias ? (
         <TrendBadge
           current={dashboard.tendencias.tareasCompletadasEsteMes}
@@ -257,13 +257,13 @@ export default function Home() {
         </div>
         <div className="flex gap-2">
           <Button asChild size="sm" className="bg-blue-600 hover:bg-blue-700">
-            <Link to="/tareas">
+            <Link to="/app/tareas">
               <Plus className="w-4 h-4 mr-1" />
               Nueva Tarea
             </Link>
           </Button>
           <Button asChild size="sm" variant="outline">
-            <Link to="/asistente">
+            <Link to="/app/asistente">
               <MessageSquare className="w-4 h-4 mr-1" />
               Asistente
             </Link>
@@ -349,7 +349,7 @@ export default function Home() {
           </p>
           <div className="flex flex-wrap gap-3 mt-4">
             <Button asChild className="bg-blue-600 hover:bg-blue-700" size="sm">
-              <Link to="/ley-karin/protocolo">Abrir wizard</Link>
+              <Link to="/app/ley-karin/protocolo">Abrir wizard</Link>
             </Button>
             <Button
               asChild
@@ -357,7 +357,7 @@ export default function Home() {
               size="sm"
               className="text-violet-700 dark:text-violet-300"
             >
-              <Link to="/ley-karin">Ver denuncias</Link>
+              <Link to="/app/ley-karin">Ver denuncias</Link>
             </Button>
           </div>
         </div>

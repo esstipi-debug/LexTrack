@@ -25,34 +25,37 @@ import {
 } from "lucide-react";
 import { useLexTheme } from "@/hooks/use-lex-theme";
 import { trpc } from "@/providers/trpc";
+import BottomNav from "@/components/BottomNav";
+import TrialBanner from "@/components/TrialBanner";
 
 const mainNav = [
-  { path: "/", label: "Inicio", icon: LayoutDashboard, match: (p: string) => p === "/" },
-  { path: "/asistente", label: "Preguntar", icon: MessageSquare, match: (p: string) => p === "/asistente" },
-  { path: "/consulta-legal", label: "Consulta Legal", icon: BookOpen, match: (p: string) => p === "/consulta-legal" },
+  { path: "/app", label: "Inicio", icon: LayoutDashboard, match: (p: string) => p === "/app" },
+  { path: "/app/asistente", label: "Preguntar", icon: MessageSquare, match: (p: string) => p === "/app/asistente" },
+  { path: "/app/consulta-legal", label: "Consulta Legal", icon: BookOpen, match: (p: string) => p === "/app/consulta-legal" },
   {
-    path: "/generador?tab=calculadora",
+    path: "/app/generador?tab=calculadora",
     label: "Calcular",
     icon: Calculator,
-    match: (p: string) => p.startsWith("/generador"),
+    match: (p: string) => p.startsWith("/app/generador"),
   },
   {
-    path: "/generador?tab=documentos",
+    path: "/app/generador?tab=documentos",
     label: "Escribir",
     icon: FilePen,
-    match: (p: string) => p.startsWith("/generador"),
+    match: (p: string) => p.startsWith("/app/generador"),
   },
-  { path: "/diario-oficial", label: "Avisar", icon: BellRing, match: (p: string) => p === "/diario-oficial" },
+  { path: "/app/diario-oficial", label: "Avisar", icon: BellRing, match: (p: string) => p === "/app/diario-oficial" },
 ];
 
 const studioNav = [
-  { path: "/causas", label: "Causas", icon: Gavel },
-  { path: "/tareas", label: "Tareas", icon: ClipboardList },
-  { path: "/checklists", label: "Checklists", icon: CheckSquare },
-  { path: "/alertas", label: "Alertas", icon: AlertCircle },
-  { path: "/honorarios", label: "Honorarios", icon: DollarSign },
-  { path: "/jurisprudencia", label: "Jurisprudencia", icon: Scale },
-  { path: "/poder-judicial", label: "Poder Judicial", icon: Building2 },
+  { path: "/app/causas", label: "Causas", icon: Gavel },
+  { path: "/app/tareas", label: "Tareas", icon: ClipboardList },
+  { path: "/app/checklists", label: "Checklists", icon: CheckSquare },
+  { path: "/app/alertas", label: "Alertas", icon: AlertCircle },
+  { path: "/app/honorarios", label: "Honorarios", icon: DollarSign },
+  { path: "/app/jurisprudencia", label: "Jurisprudencia", icon: Scale },
+  { path: "/app/poder-judicial", label: "Poder Judicial", icon: Building2 },
+  { path: "/app/calculadoras", label: "Calculadoras", icon: Calculator },
 ];
 
 function NavLink({
@@ -113,7 +116,7 @@ function NotificationBell() {
   return (
     <button
       type="button"
-      onClick={() => navigate("/alertas")}
+      onClick={() => navigate("/app/alertas")}
       className="relative p-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800"
       title="Alertas"
     >
@@ -134,6 +137,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const pathname = location.pathname;
 
+  const { data: orgData } = trpc.org.miOrg.useQuery();
+
   const closeMobile = () => setMobileOpen(false);
 
   return (
@@ -148,7 +153,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }`}
       >
         <div className="flex items-center justify-between h-16 px-5 border-b border-gray-200 dark:border-neutral-800">
-          <Link to="/" className="flex items-center gap-3" onClick={closeMobile}>
+          <Link to="/app" className="flex items-center gap-3" onClick={closeMobile}>
             <Gavel className="w-8 h-8 text-blue-600 dark:text-blue-400" />
             <span className="text-xl font-extrabold tracking-tight text-gray-900 dark:text-white">
               LexTrack
@@ -191,10 +196,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           <div className="mt-6 pt-4">
             <NavLink
-              to="/ley-karin"
+              to="/app/ley-karin"
               label="Ley Karin"
               icon={Shield}
-              active={pathname.startsWith("/ley-karin")}
+              active={pathname.startsWith("/app/ley-karin")}
               featured
               badge="Nuevo"
               onNavigate={closeMobile}
@@ -224,25 +229,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
             <NotificationBell />
             <Link
-              to="/asistente"
+              to="/app/asistente"
               className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-colors dark:text-blue-400 dark:border-blue-400 dark:hover:bg-blue-600 dark:hover:text-white"
             >
               <Bot className="w-4 h-4" />
               Asistente
             </Link>
-            <div
-              className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-violet-500 flex items-center justify-center text-white text-sm font-bold"
-              title={user?.name ?? "Usuario"}
-            >
-              {getUserInitials(user?.name)}
+            <div className="flex flex-col items-end gap-0.5">
+              <div
+                className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-violet-500 flex items-center justify-center text-white text-sm font-bold"
+                title={user?.name ?? "Usuario"}
+              >
+                {getUserInitials(user?.name)}
+              </div>
+              {orgData && (
+                <span className="hidden sm:flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 max-w-[140px]">
+                  <Building2 className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{orgData.nombre}</span>
+                </span>
+              )}
             </div>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <TrialBanner />
+
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-20 lg:pb-6">
           <div className="max-w-[1200px] mx-auto">{children}</div>
         </main>
       </div>
+
+      <BottomNav />
     </div>
   );
 }

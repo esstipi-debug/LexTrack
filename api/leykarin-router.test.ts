@@ -26,6 +26,7 @@ vi.mock("./lib/karin/documentos", () => ({
 type DenunciaRow = {
   id: number;
   userId: string;
+  orgId?: number | null;
   codigo: string;
   estado: string;
   tipo: string;
@@ -85,6 +86,13 @@ const DENUNCIAS_U2: DenunciaRow[] = [
 ];
 const ALL_DENUNCIAS = [...DENUNCIAS_U1, ...DENUNCIAS_U2];
 
+// Multi-firma fixture: denuncias visible across firmaA (orgId=10) and firmaB (orgId=20).
+const FIRMA_DENUNCIAS: DenunciaRow[] = [
+  makeDenuncia(9001, "uA", { orgId: 10 }),
+  makeDenuncia(9002, "uA", { orgId: 10 }),
+  makeDenuncia(9100, "uX", { orgId: 20 }),
+];
+
 let insertedDenuncia: Record<string, unknown> | null = null;
 let updatedEstado: Record<string, unknown> | null = null;
 
@@ -101,13 +109,20 @@ vi.mock("./queries/connection", () => {
         limit: (n: number) => {
           const userId = (globalThis as any).__userId as string;
           const cursor = (globalThis as any).__cursor as number | null;
-          let rows = ALL_DENUNCIAS.filter((r) => r.userId === userId);
+          const source = (globalThis as any).__source as "all" | "firma" | undefined;
+          const orgIds = ((globalThis as any).__orgIds as number[] | undefined) ?? [];
+          const dataset = source === "firma" ? FIRMA_DENUNCIAS : ALL_DENUNCIAS;
+          let rows = dataset.filter((r) =>
+            source === "firma"
+              ? r.userId === userId || (r.orgId != null && orgIds.includes(r.orgId))
+              : r.userId === userId,
+          );
           if (cursor != null) rows = rows.filter((r) => r.id < cursor);
           rows.sort((a, b) => b.id - a.id);
           return Promise.resolve(rows.slice(0, n));
         },
         // then: used when chain is awaited directly (no .limit())
-        // Used by: obtener, cambiarEstado, dashboard, calcularPlazo, generarActa
+        // Used by: obtener, cambiarEstado, dashboard, calcularPlazo, generarActa, getUserOrgIds
         then: (resolve: (v: DenunciaRow[]) => void) => {
           const userId = (globalThis as any).__userId as string;
           const singleId = (globalThis as any).__singleId as number | undefined;
@@ -121,7 +136,8 @@ vi.mock("./queries/connection", () => {
         },
         insert: (_table: unknown) => ({
           values: (v: Record<string, unknown>) => {
-            insertedDenuncia = v;
+            // ignore audit_log inserts to keep capture focused on subject under test
+            if (!("action" in v && "tableName" in v)) insertedDenuncia = v;
             return Promise.resolve();
           },
         }),
@@ -146,6 +162,8 @@ vi.mock("drizzle-orm", async () => {
     eq: (..._args: unknown[]) => ({ _op: "eq" }),
     desc: (..._args: unknown[]) => ({ _op: "desc" }),
     and: (..._args: unknown[]) => ({ _op: "and" }),
+    or: (..._args: unknown[]) => ({ _op: "or" }),
+    inArray: (..._args: unknown[]) => ({ _op: "inArray" }),
     sql: ((..._args: unknown[]) => ({ _op: "sql" })) as any,
     lt: (..._args: unknown[]) => ({ _op: "lt" }),
   };
@@ -168,6 +186,8 @@ beforeEach(() => {
   (globalThis as any).__userId = "u1";
   (globalThis as any).__cursor = null;
   (globalThis as any).__singleId = undefined;
+  (globalThis as any).__source = "all";
+  (globalThis as any).__orgIds = [];
   insertedDenuncia = null;
   updatedEstado = null;
 });
@@ -424,5 +444,36 @@ describe("leykarin.calcularPlazo", () => {
     await expect(caller.calcularPlazo({ id: 100 })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+});
+
+// ─── Multi-firma visibility ────────────────────────────────────────────────
+describe("leykarin.listar — multi-firma visibility", () => {
+  it("firm member sees colleagues' denuncias in the same firm", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uB";
+    (globalThis as any).__orgIds = [10];
+    const caller = leykarinRouter.createCaller(makeCtx("uB"));
+    const result = await caller.listar({ limit: 50 });
+    const ids = result.items.map((i) => i.id).sort((a, b) => a - b);
+    expect(ids).toEqual([9001, 9002]);
+  });
+
+  it("user in other firm cannot see firmaA denuncias", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uY";
+    (globalThis as any).__orgIds = [20];
+    const caller = leykarinRouter.createCaller(makeCtx("uY"));
+    const result = await caller.listar({ limit: 50 });
+    expect(result.items.map((i) => i.id)).toEqual([9100]);
+  });
+
+  it("user with no firm sees nothing from firma fixture", async () => {
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uZ";
+    (globalThis as any).__orgIds = [];
+    const caller = leykarinRouter.createCaller(makeCtx("uZ"));
+    const result = await caller.listar({ limit: 50 });
+    expect(result.items).toEqual([]);
   });
 });

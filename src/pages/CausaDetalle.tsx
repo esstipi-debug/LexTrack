@@ -102,7 +102,7 @@ export default function CausaDetalle() {
     return (
       <div className="p-4 text-center">
         <p className="text-gray-500">Causa no encontrada</p>
-        <Link to="/causas" className="text-blue-600 hover:underline mt-2 inline-block">
+        <Link to="/app/causas" className="text-blue-600 hover:underline mt-2 inline-block">
           Volver a causas
         </Link>
       </div>
@@ -162,7 +162,7 @@ export default function CausaDetalle() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link to="/causas">
+        <Link to="/app/causas">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="w-4 h-4 mr-1" /> Volver
           </Button>

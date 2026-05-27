@@ -194,7 +194,7 @@ export default function Causas() {
       ) : (
         <div className="grid gap-3">
           {(filtered || []).map((c) => (
-            <Link key={c.id} to={`/causas/${c.id}`} className="block">
+            <Link key={c.id} to={`/app/causas/${c.id}`} className="block">
               <Card className="hover:shadow-md transition-shadow">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">

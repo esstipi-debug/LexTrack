@@ -208,7 +208,7 @@ export default function LeyKarinProtocolo() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/ley-karin")}
+            onClick={() => navigate("/app/ley-karin")}
             className="-ml-2 mb-2"
           >
             <ArrowLeft className="w-4 h-4 mr-1" /> Volver

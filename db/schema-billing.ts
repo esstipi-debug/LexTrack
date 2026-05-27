@@ -28,6 +28,7 @@ export const subscriptions = pgTable('subscriptions', {
   externalId: varchar('externalId', { length: 255 }),
   status: subscriptionStatusEnum('status').notNull().default('active'),
   currentPeriodEnd: timestamp('currentPeriodEnd'),
+  trialEndsAt: timestamp('trialEndsAt'),
   cancelAtPeriodEnd: boolean('cancelAtPeriodEnd').default(false),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().notNull(),

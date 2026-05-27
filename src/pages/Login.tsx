@@ -1,6 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
+const REDIRECT_AFTER_LOGIN_KEY = "lextrack:redirect_after_login";
+
 function getOAuthUrl() {
   const kimiAuthUrl = import.meta.env.VITE_KIMI_AUTH_URL;
   const appID = import.meta.env.VITE_APP_ID;
@@ -18,6 +20,18 @@ function getOAuthUrl() {
 }
 
 export default function Login() {
+  const handleSignIn = () => {
+    // Persist post-login redirect destination so LandingRoute can pick it up
+    const params = new URLSearchParams(window.location.search);
+    const redirect = params.get("redirect");
+    if (redirect && redirect.startsWith("/")) {
+      sessionStorage.setItem(REDIRECT_AFTER_LOGIN_KEY, redirect);
+    } else {
+      sessionStorage.removeItem(REDIRECT_AFTER_LOGIN_KEY);
+    }
+    window.location.href = getOAuthUrl();
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center">
       <Card className="w-full max-w-sm">
@@ -25,13 +39,7 @@ export default function Login() {
           <CardTitle>Welcome</CardTitle>
         </CardHeader>
         <CardContent>
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={() => {
-              window.location.href = getOAuthUrl();
-            }}
-          >
+          <Button className="w-full" size="lg" onClick={handleSignIn}>
             Sign in with Kimi
           </Button>
         </CardContent>
@@ -39,3 +47,5 @@ export default function Login() {
     </div>
   );
 }
+
+export { REDIRECT_AFTER_LOGIN_KEY };

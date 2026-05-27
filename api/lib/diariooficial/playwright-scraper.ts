@@ -3,9 +3,13 @@
 //
 // Selectores son PLACEHOLDERS. Deben verificarse contra el DOM real
 // antes de activar la flag `DIARIO_OFICIAL_SCRAPER=playwright` en prod.
-// Cada selector dudoso lleva una marca `// TODO: verify against diariooficial.interior.gob.cl`.
+// Cada selector dudoso lleva una marca `// TODO(scraper-selectors): ...`.
+//
+// Browser/page lifecycle, retry, y screenshot-on-error viven en
+// `api/jobs/lib/playwright-helpers.ts`. Ver `docs/SCRAPERS.md` para el
+// workflow de verificación contra el sitio vivo.
 
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Page, ElementHandle } from "playwright";
 import type {
   BuscarNormasOpts,
   DiarioOficialNorma,
@@ -14,6 +18,11 @@ import {
   DiarioOficialNotFoundError,
   DiarioOficialUnavailableError,
 } from "./types";
+import {
+  withBrowser,
+  withRetries,
+  captureDebugScreenshot,
+} from "../../jobs/lib/playwright-helpers";
 
 export {
   DiarioOficialNotFoundError,
@@ -25,109 +34,64 @@ export {
 export const DIARIO_OFICIAL_BASE_URL =
   "https://www.diariooficial.interior.gob.cl/edicionelectronica/";
 
-const NAV_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
-const RETRY_BASE_MS = 500;
 
 // ─── Selectores (PLACEHOLDERS) ───────────────────────────────────
+// Centralizados arriba para que actualizar un selector sea un edit de
+// una línea. Ver `docs/SCRAPERS.md` → "Para actualizar selectores".
 export const SELECTORS = {
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar contra DOM real de https://www.diariooficial.interior.gob.cl/edicionelectronica/ — input de fecha
   fechaInput: "input[name='date'], #fecha",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — botón submit del formulario de búsqueda
   submitButton: "button[type='submit'], input[type='submit']",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — input de búsqueda libre
   searchInput: "input[name='q'], input[type='search']",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — contenedor del listado de normas / edición del día
   resultsContainer: "#resultados, .normas-list, table.ediciones",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — fila individual de norma en el listado
   normaRow: "tr.norma-row, li.norma, .norma-item",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — celda tipo de norma (Ley, Decreto, etc.)
   normaTipo: ".tipo, td.tipo",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — número de norma
   normaNumero: ".numero, td.numero",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — título de la norma
   normaTitulo: ".titulo, td.titulo, a.titulo",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — organismo emisor
   normaOrganismo: ".organismo, td.organismo",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — materia (laboral, civil, etc.)
   normaMateria: ".materia, td.materia",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — fecha de publicación
   normaFecha: ".fecha, td.fecha",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — link al texto completo de la norma
   normaLink: "a[href*='/edicionelectronica/']",
-  // TODO: verify against diariooficial.interior.gob.cl
+  // TODO(scraper-selectors): verificar — mensaje "sin resultados"
   noResults: ".sin-resultados, .no-results",
 } as const;
 
-// ─── Browser singleton ───────────────────────────────────────────
-
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    browserPromise = (async () => {
-      const { chromium } = await import("playwright");
-      return chromium.launch({ headless: true });
-    })();
-  }
-  return browserPromise;
-}
-
+// ─── Backward-compat shim ────────────────────────────────────────
+// `closeBrowser` used to terminate a long-lived browser singleton.
+// Lifecycle now lives inside `withBrowser` (one browser per scrape),
+// so this is a no-op kept for callers that still import it.
 export async function closeBrowser(): Promise<void> {
-  if (!browserPromise) return;
-  try {
-    const b = await browserPromise;
-    await b.close();
-  } catch {
-    /* best effort */
-  } finally {
-    browserPromise = null;
-  }
-}
-
-// ─── Retry helper ────────────────────────────────────────────────
-
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  { maxRetries = MAX_RETRIES, baseMs = RETRY_BASE_MS } = {},
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (err instanceof DiarioOficialNotFoundError) throw err;
-      lastErr = err;
-      if (attempt < maxRetries - 1) {
-        const delay = baseMs * Math.pow(2, attempt);
-        await new Promise((r) => setTimeout(r, delay));
-      }
-    }
-  }
-  throw new DiarioOficialUnavailableError(
-    `Diario Oficial scraper falló tras ${maxRetries} intentos`,
-    lastErr,
-  );
+  // no-op — browsers are now scoped per `withBrowser` call.
 }
 
 // ─── Page helpers ────────────────────────────────────────────────
 
-async function newPage(): Promise<{ page: Page; context: BrowserContext }> {
-  const browser = await getBrowser();
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
-  page.setDefaultTimeout(NAV_TIMEOUT_MS);
-  return { page, context };
-}
-
-async function textOf(row: any, selector: string): Promise<string> {
+async function textOf(
+  row: ElementHandle | Page,
+  selector: string,
+): Promise<string> {
   const el = await row.$(selector);
   if (!el) return "";
   return ((await el.textContent()) || "").trim();
 }
 
-async function attrOf(row: any, selector: string, attr: string): Promise<string> {
+async function attrOf(
+  row: ElementHandle | Page,
+  selector: string,
+  attr: string,
+): Promise<string> {
   const el = await row.$(selector);
   if (!el) return "";
   return ((await el.getAttribute(attr)) || "").trim();
@@ -157,6 +121,29 @@ async function scrapeNormaRows(page: Page): Promise<DiarioOficialNorma[]> {
   return out;
 }
 
+/** Wraps the helper retry with Diario-Oficial-specific abort logic:
+ *  NotFound errors bypass retries; transient errors retry up to
+ *  MAX_RETRIES and finally surface as `DiarioOficialUnavailableError`. */
+async function withDoRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+): Promise<T> {
+  try {
+    return await withRetries(fn, {
+      label,
+      retries: MAX_RETRIES,
+      baseDelayMs: 500,
+      shouldRetry: (err) => !(err instanceof DiarioOficialNotFoundError),
+    });
+  } catch (err) {
+    if (err instanceof DiarioOficialNotFoundError) throw err;
+    throw new DiarioOficialUnavailableError(
+      `Diario Oficial scraper falló tras ${MAX_RETRIES} intentos`,
+      err,
+    );
+  }
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
@@ -166,23 +153,27 @@ async function scrapeNormaRows(page: Page): Promise<DiarioOficialNorma[]> {
 export async function obtenerEdicionDelDia(
   fecha: Date = new Date(),
 ): Promise<DiarioOficialNorma[]> {
-  return withRetry(async () => {
-    const { page, context } = await newPage();
-    try {
-      const url = `${DIARIO_OFICIAL_BASE_URL}?date=${toIso(fecha)}`;
-      await page.goto(url, { waitUntil: "domcontentloaded" });
+  return withDoRetry(
+    () =>
+      withBrowser(async ({ page }) => {
+        try {
+          const url = `${DIARIO_OFICIAL_BASE_URL}?date=${toIso(fecha)}`;
+          await page.goto(url, { waitUntil: "domcontentloaded" });
 
-      const noResults = await page.$(SELECTORS.noResults);
-      if (noResults) return [];
+          const noResults = await page.$(SELECTORS.noResults);
+          if (noResults) return [];
 
-      const container = await page.$(SELECTORS.resultsContainer);
-      if (!container) return [];
+          const container = await page.$(SELECTORS.resultsContainer);
+          if (!container) return [];
 
-      return await scrapeNormaRows(page);
-    } finally {
-      await context.close().catch(() => {});
-    }
-  });
+          return await scrapeNormaRows(page);
+        } catch (err) {
+          await captureDebugScreenshot(page, "diariooficial-edicionDelDia");
+          throw err;
+        }
+      }),
+    "diariooficial.obtenerEdicionDelDia",
+  );
 }
 
 /**
@@ -193,32 +184,40 @@ export async function buscarNormas(
   query: string,
   opts: BuscarNormasOpts = {},
 ): Promise<DiarioOficialNorma[]> {
-  return withRetry(async () => {
-    const { page, context } = await newPage();
-    try {
-      await page.goto(DIARIO_OFICIAL_BASE_URL, { waitUntil: "domcontentloaded" });
-      await page.fill(SELECTORS.searchInput, query).catch(() => {});
-      // TODO: verify against diariooficial.interior.gob.cl — date range fields
-      if (opts.fechaDesde) {
-        await page.fill(SELECTORS.fechaInput, toIso(opts.fechaDesde)).catch(() => {});
-      }
-      await page.click(SELECTORS.submitButton).catch(() => {});
-      await page.waitForLoadState("domcontentloaded");
+  return withDoRetry(
+    () =>
+      withBrowser(async ({ page }) => {
+        try {
+          await page.goto(DIARIO_OFICIAL_BASE_URL, {
+            waitUntil: "domcontentloaded",
+          });
+          await page.fill(SELECTORS.searchInput, query).catch(() => {});
+          // TODO(scraper-selectors): verificar — date range fields
+          if (opts.fechaDesde) {
+            await page
+              .fill(SELECTORS.fechaInput, toIso(opts.fechaDesde))
+              .catch(() => {});
+          }
+          await page.click(SELECTORS.submitButton).catch(() => {});
+          await page.waitForLoadState("domcontentloaded");
 
-      const noResults = await page.$(SELECTORS.noResults);
-      if (noResults) return [];
+          const noResults = await page.$(SELECTORS.noResults);
+          if (noResults) return [];
 
-      const container = await page.$(SELECTORS.resultsContainer);
-      if (!container) return [];
+          const container = await page.$(SELECTORS.resultsContainer);
+          if (!container) return [];
 
-      let normas = await scrapeNormaRows(page);
-      if (opts.materia) {
-        normas = normas.filter((n) => n.materia === opts.materia);
-      }
-      if (opts.limit) normas = normas.slice(0, opts.limit);
-      return normas;
-    } finally {
-      await context.close().catch(() => {});
-    }
-  });
+          let normas = await scrapeNormaRows(page);
+          if (opts.materia) {
+            normas = normas.filter((n) => n.materia === opts.materia);
+          }
+          if (opts.limit) normas = normas.slice(0, opts.limit);
+          return normas;
+        } catch (err) {
+          await captureDebugScreenshot(page, "diariooficial-buscarNormas");
+          throw err;
+        }
+      }),
+    "diariooficial.buscarNormas",
+  );
 }

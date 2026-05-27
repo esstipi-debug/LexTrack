@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createRouter, authedQuery } from "./middleware";
+import { createRouter, subscriptionGatedQuery } from "./middleware";
 import { TOOL_DEFINITIONS } from "./lib/agent/tool-definitions";
 import { runAgentLoop } from "./lib/agent/loop";
 import { keywordFallback } from "./lib/agent/fallback";
@@ -7,7 +7,7 @@ import { type AnthropicMessage } from "./lib/agent/types";
 import { env } from "./lib/env";
 
 export const agentRouter = createRouter({
-  chat: authedQuery
+  chat: subscriptionGatedQuery
     .input(z.object({
       mensaje: z.string().min(1),
       sessionId: z.string().optional(),

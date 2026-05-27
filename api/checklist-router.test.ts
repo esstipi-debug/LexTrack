@@ -11,7 +11,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 type TemplateRow = { id: number; nombre: string; descripcion: string | null };
 type ItemRow = { id: number; templateId: number; texto: string; orden: number };
-type EjecucionRow = { id: number; userId: string; templateId: number; titulo: string; causaId: number | null };
+type EjecucionRow = { id: number; userId: string; orgId?: number | null; templateId: number; titulo: string; causaId: number | null };
 type CompletadoRow = { id: number; userId: string; ejecucionId: number; itemId: number; completado: boolean; notas: string | null; completadoAt: Date | null };
 
 const TEMPLATES: TemplateRow[] = Array.from({ length: 12 }, (_, i) => ({
@@ -41,6 +41,13 @@ const EJECUCIONES_U2: EjecucionRow[] = [
 
 const ALL_EJECUCIONES = [...EJECUCIONES_U1, ...EJECUCIONES_U2];
 
+// Multi-firma fixture: ejecuciones for firmaA (orgId=10) vs firmaB (orgId=20).
+const FIRMA_EJECUCIONES: EjecucionRow[] = [
+  { id: 9501, userId: "uA", orgId: 10, templateId: 1, titulo: "Ejec firmaA #1", causaId: null },
+  { id: 9502, userId: "uA", orgId: 10, templateId: 1, titulo: "Ejec firmaA #2", causaId: null },
+  { id: 9601, userId: "uX", orgId: 20, templateId: 1, titulo: "Ejec firmaB #1", causaId: null },
+];
+
 // Tracks what was inserted / updated
 let insertedEjecucion: Record<string, unknown> | null = null;
 let insertedCompletado: Record<string, unknown> | null = null;
@@ -57,7 +64,7 @@ vi.mock("./queries/connection", () => {
         from: () => db,
         where: (_cond?: unknown) => db,
         orderBy: () => db,
-        // limit: drives pagination
+        // limit: drives pagination, and the visibility "exists?" check for ejecuciones.
         limit: (n: number) => {
           const mode = (globalThis as any).__dbMode as string;
 
@@ -80,15 +87,36 @@ vi.mock("./queries/connection", () => {
           if (mode === "ejecuciones") {
             const userId = (globalThis as any).__userId as string;
             const cursor = (globalThis as any).__cursor as number | null;
-            let rows = ALL_EJECUCIONES.filter((r) => r.userId === userId);
+            const source = (globalThis as any).__source as "all" | "firma" | undefined;
+            const orgIds = ((globalThis as any).__orgIds as number[] | undefined) ?? [];
+            const dataset = source === "firma" ? FIRMA_EJECUCIONES : ALL_EJECUCIONES;
+            let rows = dataset.filter((r) =>
+              source === "firma"
+                ? r.userId === userId || (r.orgId != null && orgIds.includes(r.orgId))
+                : r.userId === userId,
+            );
             if (cursor != null) rows = rows.filter((r) => r.id < cursor);
             rows.sort((a, b) => b.id - a.id);
             return Promise.resolve(rows.slice(0, n));
           }
 
+          // For other modes (progreso / completarItem call `.limit(1)` to check
+          // ejecucion visibility), return a single stub row by default so the
+          // visibility gate passes. Tests can set __ejecVisible=false to simulate
+          // a cross-tenant lookup.
+          if (n === 1) {
+            const visible = (globalThis as any).__ejecVisible;
+            if (visible === false) return Promise.resolve([]);
+            return Promise.resolve([{ id: 1 }]);
+          }
+
           return Promise.resolve([]);
         },
-        // then: used when awaiting without .limit() (e.g. progreso / completarItem select)
+        // then: used when awaiting without .limit().
+        // - getUserOrgIds expects rows with .orgId
+        // - progreso / completarItem expect the completados list (mockCompletados)
+        // Returning mockCompletados is safe for getUserOrgIds since it maps
+        // to undefineds — the mock filter on `limit` ignores predicates anyway.
         then: (resolve: (v: unknown[]) => void) => {
           return Promise.resolve(mockCompletados).then(resolve);
         },
@@ -126,6 +154,8 @@ vi.mock("drizzle-orm", async () => {
     eq: (..._args: unknown[]) => ({ _op: "eq" }),
     desc: (..._args: unknown[]) => ({ _op: "desc" }),
     and: (..._args: unknown[]) => ({ _op: "and" }),
+    or: (..._args: unknown[]) => ({ _op: "or" }),
+    inArray: (..._args: unknown[]) => ({ _op: "inArray" }),
     sql: ((..._args: unknown[]) => ({ _op: "sql" })) as any,
     lt: (..._args: unknown[]) => ({ _op: "lt" }),
   };
@@ -143,6 +173,9 @@ beforeEach(() => {
   (globalThis as any).__userId = "u1";
   (globalThis as any).__cursor = null;
   (globalThis as any).__dbMode = "templates";
+  (globalThis as any).__source = "all";
+  (globalThis as any).__orgIds = [];
+  (globalThis as any).__ejecVisible = true;
   insertedEjecucion = null;
   insertedCompletado = null;
   updatedCompletado = null;
@@ -307,20 +340,54 @@ describe("checklist.completarItem", () => {
   });
 
   it("cross-tenant: completarItem scopes WHERE clause to userId (no-op for other user's items)", async () => {
-    // The router filters by userId in the WHERE, so a cross-user attempt finds no existing
-    // record and would insert scoped to the calling user's id
+    // Simulate cross-tenant: the visibility "exists?" check finds no row,
+    // so the router short-circuits and does NOT insert.
     mockCompletados = [];
+    (globalThis as any).__dbMode = "none"; // disable templates default → falls through to n===1 stub
+    (globalThis as any).__ejecVisible = false;
     const caller = checklistRouter.createCaller(makeCtx("u2"));
     const result = await caller.completarItem({
       ejecucionId: 1,
       itemId: 1,
       completado: true,
     });
-    // Router always returns { ok: true } — safety is in the WHERE clause
+    // Router always returns { ok: true } — safety is in the visibility gate
     expect(result).toEqual({ ok: true });
-    // Any insert would be stamped with u2's userId
-    if (insertedCompletado) {
-      expect(insertedCompletado.userId).toBe("u2");
-    }
+    // No insert happens because the visibility gate short-circuited
+    expect(insertedCompletado).toBeNull();
+  });
+});
+
+// ─── Multi-firma visibility ────────────────────────────────────────────────
+describe("checklist.ejecuciones — multi-firma visibility", () => {
+  it("firm member sees colleagues' ejecuciones in the same firm", async () => {
+    (globalThis as any).__dbMode = "ejecuciones";
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uB";
+    (globalThis as any).__orgIds = [10];
+    const caller = checklistRouter.createCaller(makeCtx("uB"));
+    const result = await caller.ejecuciones({ limit: 50 });
+    const ids = result.items.map((i) => i.id).sort((a, b) => a - b);
+    expect(ids).toEqual([9501, 9502]);
+  });
+
+  it("user in other firm cannot see firmaA ejecuciones", async () => {
+    (globalThis as any).__dbMode = "ejecuciones";
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uY";
+    (globalThis as any).__orgIds = [20];
+    const caller = checklistRouter.createCaller(makeCtx("uY"));
+    const result = await caller.ejecuciones({ limit: 50 });
+    expect(result.items.map((i) => i.id)).toEqual([9601]);
+  });
+
+  it("user with no firm sees nothing from firma fixture", async () => {
+    (globalThis as any).__dbMode = "ejecuciones";
+    (globalThis as any).__source = "firma";
+    (globalThis as any).__userId = "uZ";
+    (globalThis as any).__orgIds = [];
+    const caller = checklistRouter.createCaller(makeCtx("uZ"));
+    const result = await caller.ejecuciones({ limit: 50 });
+    expect(result.items).toEqual([]);
   });
 });
