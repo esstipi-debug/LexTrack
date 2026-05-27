@@ -173,7 +173,9 @@ function StatusPipeline({ estado }: { estado: string }) {
 // ─── Main Component ─────────────────────────────────────────────
 export default function LeyKarin() {
   const utils = trpc.useUtils();
-  const { data: denuncias, isLoading } = trpc.leykarin.listar.useQuery();
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: denunciasData, isLoading } = trpc.leykarin.listar.useQuery({ limit: 20 });
+  const denuncias = denunciasData?.items ?? [];
   const { data: dashboard } = trpc.leykarin.dashboard.useQuery();
 
   const cambiarEstado = trpc.leykarin.cambiarEstado.useMutation({

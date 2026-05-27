@@ -4,6 +4,9 @@ import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
 import { consultarCausa, buscarPorRut } from "./lib/pjud/client";
 import { sincronizarCausa } from "./lib/pjud/sync";
+import { buscarDictamenes } from "./lib/dt";
+import { buscarNormas } from "./lib/bcn";
+import { buscarFallos as buscarFallosSuprema } from "./lib/suprema";
 import { generarActaRecepcion, generarInformeFinal, generarNotificacionMedidas } from "./lib/karin/documentos";
 import {
   causas, tareas, alertas, honorarios, jurisprudencias,
@@ -253,6 +256,40 @@ const agentTools: AnthropicTool[] = [
     },
   },
   {
+    name: "buscar_dictamen_dt",
+    description: "Busca dictámenes (ordinarios) de la Dirección del Trabajo de Chile sobre interpretación de normas laborales. Usa esta herramienta cuando el usuario pregunte por dictámenes DT, criterios de la Dirección del Trabajo, ordinarios, o cómo interpreta la DT alguna materia laboral.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Tema, materia o número de ordinario a buscar (ej: 'jornada de trabajo', 'feriado proporcional', 'acoso laboral')" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "buscar_ley_bcn",
+    description: "Busca leyes, decretos y normas chilenas en LeyChile de la Biblioteca del Congreso Nacional (BCN). Usa esta herramienta cuando el usuario pida buscar una ley por número, tema o nombre (ej: 'Ley 21.643', 'Ley Karin', 'reducción jornada', 'seguro cesantía').",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Número de ley, nombre o tema de la norma a buscar" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "buscar_fallo_suprema",
+    description: "Busca fallos recientes de la Corte Suprema de Chile (jurisprudencia de la Tercera y Cuarta Sala, especialmente recursos de unificación laboral). Usa esta herramienta cuando el usuario pida buscar fallos de la Suprema, recursos de unificación, sentencias del máximo tribunal o jurisprudencia reciente de la Corte Suprema.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Tema, materia o término libre para buscar fallos" },
+        materia: { type: "string", description: "Materia opcional (ej: laboral, civil, penal, previsional)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "generar_documento_karin",
     description: "Genera documentos Ley Karin: acta de recepción de denuncia, informe final de investigación, o notificación de medidas cautelares. Usa esta herramienta cuando el usuario pida generar documentos relacionados con denuncias de acoso laboral, sexual o violencia en el trabajo.",
     input_schema: {
@@ -269,7 +306,7 @@ const agentTools: AnthropicTool[] = [
 
 // ─── TOOL EXECUTORS ─────────────────────────────────────────────
 
-async function ejecutarTool(name: string, input: Record<string, unknown>): Promise<string> {
+async function ejecutarTool(name: string, input: Record<string, unknown>, userId: number): Promise<string> {
   const db = getDb();
 
   switch (name) {
@@ -301,7 +338,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
         } catch { /* fallback a MySQL */ }
       }
 
-      const docs = await db.select().from(documentosLegales).where(sql`${documentosLegales.estaActiva} = 1`);
+      const docs = await db.select().from(documentosLegales).where(sql`${documentosLegales.estaActiva} = true`);
       const scored = rankDocumentosLegales(consulta, docs, 5);
       return JSON.stringify({
         pipeline: "mysql_lexical",
@@ -318,7 +355,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
 
     case "buscar_jurisprudencia": {
       const consulta = String(input.consulta ?? "");
-      const juris = await db.select().from(jurisprudencias).where(sql`${jurisprudencias.estaActiva} = 1`);
+      const juris = await db.select().from(jurisprudencias).where(sql`${jurisprudencias.estaActiva} = true`);
       const scored = rankJurisprudencia(consulta, juris, 5);
       return JSON.stringify({
         resultados: scored.map((j) => ({
@@ -339,15 +376,13 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
       const busqueda = input.busqueda ? String(input.busqueda) : null;
       const estado = input.estado ? String(input.estado) : null;
 
-      const conditions = [];
+      const conditions = [eq(causas.userId, userId)];
       if (estado) conditions.push(eq(causas.estado, estado as any));
       if (busqueda) {
-        conditions.push(sql`(${causas.rit} LIKE ${`%${busqueda}%`} OR ${causas.caratula} LIKE ${`%${busqueda}%`} OR ${causas.tribunal} LIKE ${`%${busqueda}%`})`);
+        conditions.push(sql`(${causas.rit} ILIKE ${`%${busqueda}%`} OR ${causas.caratula} ILIKE ${`%${busqueda}%`} OR ${causas.tribunal} ILIKE ${`%${busqueda}%`})`);
       }
 
-      const results = conditions.length > 0
-        ? await db.select().from(causas).where(and(...conditions)).orderBy(desc(causas.createdAt)).limit(limite)
-        : await db.select().from(causas).orderBy(desc(causas.createdAt)).limit(limite);
+      const results = await db.select().from(causas).where(and(...conditions)).orderBy(desc(causas.createdAt)).limit(limite);
 
       return JSON.stringify({
         causas: results.map((c) => ({
@@ -362,7 +397,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
       const estado = input.estado ? String(input.estado) : "pendiente";
       const limite = Number(input.limite) || 10;
       const results = await db.select().from(tareas)
-        .where(eq(tareas.estado, estado as any))
+        .where(and(eq(tareas.estado, estado as any), eq(tareas.userId, userId)))
         .orderBy(tareas.fechaVencimiento)
         .limit(limite);
       return JSON.stringify({
@@ -377,6 +412,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
     case "crear_tarea": {
       const titulo = String(input.titulo);
       const values: Record<string, unknown> = {
+        userId,
         titulo,
         descripcion: input.descripcion ? String(input.descripcion) : null,
         prioridad: (input.prioridad as any) || "media",
@@ -391,7 +427,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
     case "listar_alertas": {
       const limite = Number(input.limite) || 10;
       const results = await db.select().from(alertas)
-        .where(eq(alertas.estado, "pendiente"))
+        .where(and(eq(alertas.estado, "pendiente"), eq(alertas.userId, userId)))
         .orderBy(desc(alertas.prioridad))
         .limit(limite);
       return JSON.stringify({
@@ -407,6 +443,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
       const hoy = new Date().toISOString().split("T")[0];
       const vencidos = await db.select().from(tareas)
         .where(and(
+          eq(tareas.userId, userId),
           sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
           sql`${tareas.fechaVencimiento} < ${hoy}`
         ))
@@ -456,10 +493,10 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
 
     case "estadisticas": {
       const [allCausas, allTareas, allAlertas, allHonorarios] = await Promise.all([
-        db.select().from(causas),
-        db.select().from(tareas),
-        db.select().from(alertas),
-        db.select().from(honorarios),
+        db.select().from(causas).where(eq(causas.userId, userId)),
+        db.select().from(tareas).where(eq(tareas.userId, userId)),
+        db.select().from(alertas).where(eq(alertas.userId, userId)),
+        db.select().from(honorarios).where(eq(honorarios.userId, userId)),
       ]);
       const causasActivas = allCausas.filter((c) => c.estado !== "concluida" && c.estado !== "archivada").length;
       const tareasPendientes = allTareas.filter((t) => t.estado === "pendiente").length;
@@ -476,7 +513,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
     }
 
     case "estado_cobranza": {
-      const all = await db.select().from(honorarios);
+      const all = await db.select().from(honorarios).where(eq(honorarios.userId, userId));
       const pendientes = all.filter((h) => h.estado === "pendiente" || h.estado === "pagado_parcial" || h.estado === "vencido" || h.estado === "moroso");
       const totalFacturado = all.reduce((s, h) => s + h.monto, 0);
       const totalPagado = all.reduce((s, h) => s + (h.montoPagado || 0), 0);
@@ -493,7 +530,7 @@ async function ejecutarTool(name: string, input: Record<string, unknown>): Promi
     }
 
     case "estado_leykarin": {
-      const denuncias = await db.select().from(leykarinDenuncias);
+      const denuncias = await db.select().from(leykarinDenuncias).where(eq(leykarinDenuncias.userId, userId));
       const porEstado: Record<string, number> = {};
       for (const d of denuncias) {
         porEstado[d.estado] = (porEstado[d.estado] || 0) + 1;
@@ -1168,15 +1205,15 @@ Firma juez: _________________________
       let causa: typeof causas.$inferSelect | null = null;
 
       if (causaId) {
-        const r = await db.select().from(causas).where(eq(causas.id, causaId)).limit(1);
+        const r = await db.select().from(causas).where(and(eq(causas.id, causaId), eq(causas.userId, userId))).limit(1);
         causa = r[0] || null;
       } else if (ritBuscar) {
-        const r = await db.select().from(causas).where(sql`${causas.rit} LIKE ${`%${ritBuscar}%`}`).limit(1);
+        const r = await db.select().from(causas).where(and(eq(causas.userId, userId), sql`${causas.rit} ILIKE ${`%${ritBuscar}%`}`)).limit(1);
         causa = r[0] || null;
       }
 
       if (!causa) {
-        const recientes = await db.select().from(causas).orderBy(desc(causas.createdAt)).limit(5);
+        const recientes = await db.select().from(causas).where(eq(causas.userId, userId)).orderBy(desc(causas.createdAt)).limit(5);
         return JSON.stringify({
           error: "No se encontró la causa especificada",
           sugerencia: "Indica el ID o RIT de la causa",
@@ -1185,10 +1222,10 @@ Firma juez: _________________________
       }
 
       const [tareasRelacionadas, alertasRelacionadas, historialCrono, notasCausa] = await Promise.all([
-        db.select().from(tareas).where(eq(tareas.causaId, causa.id)),
-        db.select().from(alertas).where(eq(alertas.causaId, causa.id)),
-        db.select().from(cronologia).where(eq(cronologia.causaId, causa.id)).orderBy(desc(cronologia.fecha)).limit(10),
-        db.select().from(notas).where(eq(notas.causaId, causa.id)).orderBy(desc(notas.createdAt)).limit(5),
+        db.select().from(tareas).where(and(eq(tareas.causaId, causa.id), eq(tareas.userId, userId))),
+        db.select().from(alertas).where(and(eq(alertas.causaId, causa.id), eq(alertas.userId, userId))),
+        db.select().from(cronologia).where(and(eq(cronologia.causaId, causa.id), eq(cronologia.userId, userId))).orderBy(desc(cronologia.fecha)).limit(10),
+        db.select().from(notas).where(and(eq(notas.causaId, causa.id), eq(notas.userId, userId))).orderBy(desc(notas.createdAt)).limit(5),
       ]);
 
       const hoy = new Date();
@@ -1264,10 +1301,10 @@ Firma juez: _________________________
       let datos: Record<string, any> = {};
       try { datos = JSON.parse(datosStr); } catch { /* ignore */ }
 
-      const [denuncia] = await db.select().from(leykarinDenuncias).where(eq(leykarinDenuncias.id, denunciaId));
+      const [denuncia] = await db.select().from(leykarinDenuncias).where(and(eq(leykarinDenuncias.id, denunciaId), eq(leykarinDenuncias.userId, userId)));
       if (!denuncia) return JSON.stringify({ error: `Denuncia ID ${denunciaId} no encontrada` });
 
-      const actuacionesRows = await db.select().from(leykarinActuaciones).where(eq(leykarinActuaciones.denunciaId, denunciaId));
+      const actuacionesRows = await db.select().from(leykarinActuaciones).where(and(eq(leykarinActuaciones.denunciaId, denunciaId), eq(leykarinActuaciones.userId, userId)));
 
       let documento = "";
       const hoyStr = new Date().toISOString().split("T")[0];
@@ -1328,6 +1365,29 @@ Firma juez: _________________________
       return JSON.stringify({ tipo, documento, denunciaId, advertencia: "Documento generado automáticamente. Requiere revisión profesional." });
     }
 
+    case "buscar_fallo_suprema": {
+      const query = String(input.query ?? "");
+      const materia = input.materia ? String(input.materia) : undefined;
+      try {
+        const fallos = await buscarFallosSuprema(query, { materia, limit: 5 });
+        return JSON.stringify({
+          fallos: fallos.slice(0, 5).map((f) => ({
+            rol: f.rol,
+            fecha: f.fechaSentencia,
+            sala: f.sala,
+            materia: f.materia,
+            caratula: f.caratula,
+            ministroRedactor: f.ministroRedactor,
+            resumen: f.resumen,
+            url: f.url,
+          })),
+          total: fallos.length,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ error: `Error buscando fallos Corte Suprema: ${e.message ?? "desconocido"}` });
+      }
+    }
+
     case "consultar_pjud": {
       const rit = input.rit ? String(input.rit) : null;
       const rut = input.rut ? String(input.rut) : null;
@@ -1345,8 +1405,40 @@ Firma juez: _________________________
 
     case "sincronizar_causa": {
       const causaId = Number(input.causa_id);
-      const result = await sincronizarCausa(causaId);
+      const result = await sincronizarCausa(causaId, userId);
       return JSON.stringify(result);
+    }
+
+    case "buscar_dictamen_dt": {
+      const query = String(input.query ?? "");
+      const dictamenes = await buscarDictamenes(query, { limite: 5 });
+      return JSON.stringify({
+        query,
+        resultados: dictamenes.slice(0, 5).map((d) => ({
+          ordinario: d.ordinario,
+          fecha: d.fecha,
+          materia: d.materia,
+          sumario: d.sumario,
+          url: d.url,
+        })),
+        total: dictamenes.length,
+      });
+    }
+
+    case "buscar_ley_bcn": {
+      const query = String(input.query ?? "");
+      const normas = await buscarNormas(query, { limite: 5 });
+      return JSON.stringify({
+        query,
+        resultados: normas.slice(0, 5).map((n) => ({
+          numero: n.numero,
+          titulo: n.titulo,
+          tipo: n.tipo,
+          fechaPublicacion: n.fechaPublicacion,
+          url: n.url,
+        })),
+        total: normas.length,
+      });
     }
 
     default:
@@ -1397,8 +1489,9 @@ export const agentRouter = createRouter({
         content: z.string(),
       })).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { mensaje, historial } = input;
+      const userId = ctx.user.id;
 
       if (!env.anthropicApiKey) {
         return fallbackKeywordAgent(mensaje);
@@ -1441,13 +1534,22 @@ export const agentRouter = createRouter({
             if (block.type === "tool_use") {
               const toolInput = block.input as Record<string, unknown>;
               let result: string;
+              let isError = false;
               try {
-                result = await ejecutarTool(block.name, toolInput);
+                result = await ejecutarTool(block.name, toolInput, userId);
+                // ejecutarTool returns {error: ...} JSON for unknown tool names; mark as error.
+                try {
+                  const parsed = JSON.parse(result);
+                  if (parsed && typeof parsed === "object" && "error" in parsed && Object.keys(parsed).length <= 2) {
+                    isError = true;
+                  }
+                } catch { /* not JSON, ignore */ }
               } catch (e: any) {
                 result = JSON.stringify({ error: `Error ejecutando ${block.name}: ${e.message ?? "desconocido"}` });
+                isError = true;
               }
               toolsUsed.push({ name: block.name, input: toolInput, result });
-              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result, is_error: isError });
             }
           }
 

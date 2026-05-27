@@ -175,7 +175,8 @@ function SummaryCard({
 export default function Alertas() {
   const [filtro, setFiltro] = useState<Filtro>("todas");
 
-  const { data: alertasData, isLoading } = trpc.alerta.listar.useQuery();
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: alertasData, isLoading } = trpc.alerta.listar.useQuery({ limit: 20 });
   const { data: dashboard } = trpc.alerta.dashboard.useQuery();
   const utils = trpc.useUtils();
 
@@ -226,7 +227,7 @@ export default function Alertas() {
     });
   }
 
-  const alertas = alertasData ?? [];
+  const alertas = alertasData?.items ?? [];
 
   const filtradas = alertas.filter((a) => {
     if (filtro === "todas") return true;

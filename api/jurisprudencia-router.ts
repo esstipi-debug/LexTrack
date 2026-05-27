@@ -2,7 +2,12 @@ import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { jurisprudencias } from "@db/schema";
-import { desc, sql } from "drizzle-orm";
+import { desc, sql, lt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 
 function scoreDoc(query: string, doc: { caratula?: string | null; contenido: string; extracto?: string | null }): number {
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -18,17 +23,30 @@ function scoreDoc(query: string, doc: { caratula?: string | null; contenido: str
 }
 
 export const jurisprudenciaRouter = createRouter({
-  listar: authedQuery.query(async () => {
-    const db = getDb();
-    return db.select().from(jurisprudencias).orderBy(desc(jurisprudencias.createdAt));
-  }),
+  listar: authedQuery
+    .input(paginationInput.optional())
+    .query(async ({ input }) => {
+      const db = getDb();
+      const limit = Math.min(input?.limit ?? 20, 100);
+      const cursor = input?.cursor ?? null;
+      const rows = await db
+        .select()
+        .from(jurisprudencias)
+        .where(cursor ? lt(jurisprudencias.id, cursor) : undefined)
+        .orderBy(desc(jurisprudencias.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
+    }),
 
   buscar: authedQuery
     .input(z.object({ query: z.string().min(1) }))
     .query(async ({ input }) => {
       const db = getDb();
       const docs = await db.select().from(jurisprudencias)
-        .where(sql`${jurisprudencias.estaActiva} = 1`)
+        .where(sql`${jurisprudencias.estaActiva} = true`)
         .limit(50);
       const scored = docs.map(d => ({
         ...d,

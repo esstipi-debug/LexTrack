@@ -8,11 +8,12 @@ import {
   leykarinDenuncias,
   actividadReciente,
 } from "@db/schema";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const statsRouter = createRouter({
-  dashboard: authedQuery.query(async () => {
+  dashboard: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const userId = ctx.user.id;
     const hoy = new Date();
     const hoyStr = hoy.toISOString().split("T")[0];
 
@@ -32,7 +33,7 @@ export const statsRouter = createRouter({
       .split("T")[0];
 
     // ── Causas ──────────────────────────────────────────────────────
-    const todasCausas = await db.select().from(causas);
+    const todasCausas = await db.select().from(causas).where(eq(causas.userId, userId));
     const estadosCausas = ["tramitacion", "notificacion", "prueba", "sentencia", "ejecucion", "concluida", "archivada"] as const;
     const porEstadoCausa: Record<string, number> = {};
     for (const estado of estadosCausas) porEstadoCausa[estado] = 0;
@@ -55,7 +56,7 @@ export const statsRouter = createRouter({
     ).length;
 
     // ── Tareas ──────────────────────────────────────────────────────
-    const todasTareas = await db.select().from(tareas);
+    const todasTareas = await db.select().from(tareas).where(eq(tareas.userId, userId));
     let tareasPendientes = 0;
     let tareasVencidas = 0;
     let tareasCompletadasEsteMes = 0;
@@ -92,7 +93,7 @@ export const statsRouter = createRouter({
     }
 
     // ── Alertas ──────────────────────────────────────────────────────
-    const todasAlertas = await db.select().from(alertas);
+    const todasAlertas = await db.select().from(alertas).where(eq(alertas.userId, userId));
     const porTipoAlerta: Record<string, number> = {};
     const porPrioridadAlerta: Record<string, number> = {};
     let alertasPendientes = 0;
@@ -106,7 +107,7 @@ export const statsRouter = createRouter({
     }
 
     // ── Honorarios ───────────────────────────────────────────────────
-    const todosHonorarios = await db.select().from(honorarios);
+    const todosHonorarios = await db.select().from(honorarios).where(eq(honorarios.userId, userId));
     let totalFacturado = 0;
     let totalPagado = 0;
     let morosidad = 0;
@@ -122,7 +123,7 @@ export const statsRouter = createRouter({
     const porCobrar = totalFacturado - totalPagado;
 
     // ── Ley Karin ────────────────────────────────────────────────────
-    const todasDenuncias = await db.select().from(leykarinDenuncias);
+    const todasDenuncias = await db.select().from(leykarinDenuncias).where(eq(leykarinDenuncias.userId, userId));
     let leyKarinActivas = 0;
     let leyKarinUrgentes = 0;
 
@@ -145,6 +146,7 @@ export const statsRouter = createRouter({
     const ultimaActividad = await db
       .select()
       .from(actividadReciente)
+      .where(eq(actividadReciente.userId, userId))
       .orderBy(sql`${actividadReciente.createdAt} DESC`)
       .limit(5);
 

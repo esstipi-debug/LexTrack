@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values so code that reads these envs at import/build time does not crash.
+      # Never put real secrets here.
+      DATABASE_URL: postgres://user:pass@localhost:5432/lextrack
+      DATABASE_URL_POSTGRES: postgres://user:pass@localhost:5432/lextrack
+      RAG_DATABASE_URL: postgres://user:pass@localhost:5432/lextrack_rag
+      ANTHROPIC_API_KEY: dummy
+      ANTHROPIC_MODEL: claude-sonnet-4-20250514
+      VOYAGE_API_KEY: dummy
+      COHERE_API_KEY: dummy
+      OWNER_UNION_ID: dummy
+      NODE_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build

@@ -1,5 +1,7 @@
 # LexTrack
 
+![CI](https://github.com/esstipi-debug/LexTrack/actions/workflows/ci.yml/badge.svg)
+
 > Asistente IA para abogados laboralistas chilenos.
 > No es ChatGPT legal. Es el sistema operativo del estudio laboral.
 
@@ -45,3 +47,31 @@ Anclaje: *"59 lucas al mes. 7 horas más a la semana. El asistente que tu estudi
 ## Disclaimer
 
 LexTrack es un **asistente**, no reemplaza el criterio profesional del abogado. Cada respuesta lleva sus fuentes citadas (artículo, rol, tribunal, fecha) para que el usuario verifique.
+
+## Scrapers
+
+LexTrack integra varios scrapers de fuentes oficiales chilenas. Todos siguen el mismo patrón de fachada: un módulo `api/lib/<fuente>/index.ts` que selecciona entre simulador (default) e implementación real con Playwright vía variable de entorno. Los selectores en las implementaciones Playwright son **placeholders** documentados con `// TODO: verify` y deben verificarse contra el sitio vivo antes de habilitar en producción.
+
+| Fuente | Env flag | Default | Sitio |
+|---|---|---|---|
+| Poder Judicial | `PJUD_SCRAPER` | `simulator` | `oficinajudicialvirtual.pjud.cl` |
+| Dirección del Trabajo (dictámenes) | `DT_SCRAPER` | `simulator` | `dt.gob.cl` |
+| BCN / LeyChile (leyes y normas) | `BCN_SCRAPER` | `simulator` | `bcn.cl/leychile` |
+| Diario Oficial | `DIARIO_OFICIAL_SCRAPER` | `simulator` | `diariooficial.interior.gob.cl` |
+| Corte Suprema (jurisprudencia) | `SUPREMA_SCRAPER` | `simulator` | `suprema.pjud.cl` |
+
+Cada scraper expone errores tipados (`*UnavailableError`, `*NotFoundError`) y reusa un único navegador Chromium por proceso (`closeBrowser()` para liberar en shutdown).
+
+## PJUD Scraper
+
+LexTrack consulta el Poder Judicial de Chile (`https://oficinajudicialvirtual.pjud.cl`) para sincronizar el estado de causas. El módulo `api/lib/pjud/` expone una fachada (`api/lib/pjud/index.ts`) que selecciona la implementación según la variable de entorno `PJUD_SCRAPER`:
+
+- `PJUD_SCRAPER=simulator` (default, o no seteada): usa el simulador en memoria (`api/lib/pjud/client.ts`) con datos sintéticos. Útil para desarrollo y CI.
+- `PJUD_SCRAPER=playwright`: usa el scraper real basado en Playwright (`api/lib/pjud/playwright-scraper.ts`) que lanza Chromium headless, navega a PJUD y extrae datos por selectores.
+
+**Selectores placeholder.** El scraper real fue construido sin acceso a la UI viva de PJUD: todos los selectores son placeholders documentados con `// TODO: verify selector against real PJUD` y están centralizados en la constante `SELECTORS` para que cambiarlos sea un edit de una línea. **Antes de habilitar `PJUD_SCRAPER=playwright` en producción hay que verificar manualmente cada selector** contra el DOM real de oficinajudicialvirtual.pjud.cl (consulta unificada, consulta por RUT, listado de movimientos).
+
+**Errores tipados.** El scraper lanza `PjudUnavailableError` (PJUD caído / red), `PjudCaptchaError` (CAPTCHA detectado) y `PjudNotFoundError` (causa inexistente) para que el caller decida si fallback al simulador o propaga el error.
+
+**Browser singleton.** Chromium se lanza una sola vez por proceso (`getBrowser()`) y se reusa entre llamadas. En shutdown llamar `closeBrowser()` desde `api/lib/pjud/playwright-scraper.ts` para liberar el proceso.
+

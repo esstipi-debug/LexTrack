@@ -42,7 +42,9 @@ const categoriaColor: Record<string, string> = {
 };
 
 export default function Checklists() {
-  const { data: templates, isLoading } = trpc.checklist.templates.useQuery();
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: templatesResp, isLoading } = trpc.checklist.templates.useQuery({ limit: 100 });
+  const templates = templatesResp?.items;
 
   // Dialog state for starting execution
   const [startOpen, setStartOpen] = useState(false);
@@ -200,7 +202,9 @@ function ChecklistExecution({
   templateNombre: string;
   onBack: () => void;
 }) {
-  const { data: items, isLoading: itemsLoading } = trpc.checklist.items.useQuery({ templateId });
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: itemsResp, isLoading: itemsLoading } = trpc.checklist.items.useQuery({ templateId, limit: 100 });
+  const items = itemsResp?.items;
   const { data: completados } = trpc.checklist.progreso.useQuery({ ejecucionId });
 
   const utils = trpc.useUtils();

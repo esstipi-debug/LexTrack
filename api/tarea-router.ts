@@ -2,7 +2,12 @@ import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { tareas, causas } from "@db/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, lt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 
 const tipoEnum = z.enum([
   "revision_documento",
@@ -22,19 +27,37 @@ const estadoEnum = z.enum(["pendiente", "en_progreso", "completada", "cancelada"
 const prioridadEnum = z.enum(["baja", "media", "alta", "critica"]);
 
 export const tareaRouter = createRouter({
-  listar: authedQuery.query(async () => {
-    const db = getDb();
-    return db.select().from(tareas).orderBy(desc(tareas.createdAt));
-  }),
+  listar: authedQuery
+    .input(paginationInput.optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const limit = Math.min(input?.limit ?? 20, 100);
+      const cursor = input?.cursor ?? null;
+      const rows = await db
+        .select()
+        .from(tareas)
+        .where(
+          and(
+            eq(tareas.userId, ctx.user.id),
+            cursor ? lt(tareas.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(tareas.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
+    }),
 
   obtener: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const tarea = await db
         .select()
         .from(tareas)
-        .where(eq(tareas.id, input.id))
+        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)))
         .limit(1);
       if (tarea.length === 0) return null;
       let causa = null;
@@ -42,7 +65,9 @@ export const tareaRouter = createRouter({
         const causaResult = await db
           .select()
           .from(causas)
-          .where(eq(causas.id, tarea[0].causaId))
+          .where(
+            and(eq(causas.id, tarea[0].causaId), eq(causas.userId, ctx.user.id))
+          )
           .limit(1);
         causa = causaResult[0] ?? null;
       }
@@ -60,11 +85,12 @@ export const tareaRouter = createRouter({
         causaId: z.number().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const [result] = await db
         .insert(tareas)
         .values({
+          userId: ctx.user.id,
           titulo: input.titulo,
           descripcion: input.descripcion ?? null,
           tipo: input.tipo,
@@ -89,7 +115,7 @@ export const tareaRouter = createRouter({
         fechaVencimiento: z.string().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const { id, ...fields } = input;
       const update: Record<string, unknown> = {};
@@ -103,13 +129,16 @@ export const tareaRouter = createRouter({
           ? new Date(fields.fechaVencimiento)
           : null;
       }
-      await db.update(tareas).set(update).where(eq(tareas.id, id));
+      await db
+        .update(tareas)
+        .set(update)
+        .where(and(eq(tareas.id, id), eq(tareas.userId, ctx.user.id)));
       return { ok: true };
     }),
 
   completar: authedQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       await db
         .update(tareas)
@@ -117,30 +146,51 @@ export const tareaRouter = createRouter({
           estado: "completada",
           fechaCompletada: new Date(),
         })
-        .where(eq(tareas.id, input.id));
+        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)));
       return { ok: true };
     }),
 
   eliminar: authedQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      await db.delete(tareas).where(eq(tareas.id, input.id));
+      await db
+        .delete(tareas)
+        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)));
       return { ok: true };
     }),
 
   porCausa: authedQuery
-    .input(z.object({ causaId: z.number() }))
-    .query(async ({ input }) => {
+    .input(
+      z.object({
+        causaId: z.number(),
+        limit: z.number().int().positive().max(100).optional(),
+        cursor: z.number().int().positive().nullish(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
-      return db
+      const limit = Math.min(input.limit ?? 20, 100);
+      const cursor = input.cursor ?? null;
+      const rows = await db
         .select()
         .from(tareas)
-        .where(eq(tareas.causaId, input.causaId))
-        .orderBy(desc(tareas.createdAt));
+        .where(
+          and(
+            eq(tareas.causaId, input.causaId),
+            eq(tareas.userId, ctx.user.id),
+            cursor ? lt(tareas.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(tareas.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
     }),
 
-  resumenSemanal: authedQuery.query(async () => {
+  resumenSemanal: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
     const hoy = new Date();
     const inicioSemana = new Date(hoy);
@@ -154,11 +204,14 @@ export const tareaRouter = createRouter({
     const inicioStr = inicioSemana.toISOString().split("T")[0];
     const finStr = finSemana.toISOString().split("T")[0];
 
+    const userScope = eq(tareas.userId, ctx.user.id);
+
     const vencenEstaSemana = await db
       .select()
       .from(tareas)
       .where(
         and(
+          userScope,
           sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
           sql`${tareas.fechaVencimiento} >= ${inicioStr}`,
           sql`${tareas.fechaVencimiento} <= ${finStr}`
@@ -171,6 +224,7 @@ export const tareaRouter = createRouter({
       .from(tareas)
       .where(
         and(
+          userScope,
           sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
           sql`${tareas.fechaVencimiento} < ${hoyStr}`
         )
@@ -182,6 +236,7 @@ export const tareaRouter = createRouter({
       .from(tareas)
       .where(
         and(
+          userScope,
           eq(tareas.estado, "completada"),
           sql`${tareas.fechaCompletada} >= ${inicioSemana.toISOString()}`,
           sql`${tareas.fechaCompletada} <= ${finSemana.toISOString()}`
@@ -198,13 +253,16 @@ export const tareaRouter = createRouter({
 
   actualizarEstado: authedQuery
     .input(z.object({ id: z.number(), estado: estadoEnum }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const update: Record<string, unknown> = { estado: input.estado };
       if (input.estado === "completada") {
         update.fechaCompletada = new Date();
       }
-      await db.update(tareas).set(update).where(eq(tareas.id, input.id));
+      await db
+        .update(tareas)
+        .set(update)
+        .where(and(eq(tareas.id, input.id), eq(tareas.userId, ctx.user.id)));
       return { ok: true };
     }),
 });

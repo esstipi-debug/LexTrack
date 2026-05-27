@@ -9,7 +9,10 @@ import { Errors } from "@contracts/errors";
 import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
+import { createLogger } from "../lib/logger";
 import type { TokenResponse } from "./types";
+
+const log = createLogger("kimi/auth");
 
 async function exchangeAuthCode(
   code: string,
@@ -57,7 +60,7 @@ export async function authenticateRequest(headers: Headers) {
   const cookies = cookie.parse(headers.get("cookie") || "");
   const token = cookies[Session.cookieName];
   if (!token) {
-    console.warn("[auth] No session cookie found in request.");
+    log.warn("No session cookie found in request.");
     throw Errors.forbidden("Invalid authentication token.");
   }
   const claim = await verifySessionToken(token);
@@ -121,7 +124,7 @@ export function createOAuthCallbackHandler() {
 
       return c.redirect("/", 302);
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      log.error({ err: error }, "OAuth callback failed");
       return c.json({ error: "OAuth callback failed" }, 500);
     }
   };

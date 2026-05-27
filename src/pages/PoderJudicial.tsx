@@ -60,7 +60,9 @@ export default function PoderJudicial() {
   );
 
   // Local causas for comparison
-  const { data: localCausas } = trpc.causa.listar.useQuery();
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: localCausasResp } = trpc.causa.listar.useQuery({ limit: 100 });
+  const localCausas = localCausasResp?.items;
 
   // Mutations
   const importarMutation = trpc.pjud.importar.useMutation();

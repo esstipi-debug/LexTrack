@@ -1,9 +1,17 @@
 import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
+import { createLogger } from "./lib/logger";
+
+const log = createLogger("rag-router");
 import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
 import { documentosLegales, conversacionesRag, jurisprudencias } from "@db/schema";
-import { sql } from "drizzle-orm";
+import { sql, and, eq, gt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 import { verifyCitations } from "./lib/rag/citations";
 import { rowsToRetrievedChunks } from "./lib/rag/chunks";
 import { rankDocumentosLegales, rankJurisprudencia } from "./lib/rag/retrieve-local";
@@ -27,14 +35,14 @@ export const ragRouter = createRouter({
       const docs = await db
         .select()
         .from(documentosLegales)
-        .where(sql`${documentosLegales.estaActiva} = 1`);
+        .where(sql`${documentosLegales.estaActiva} = true`);
 
       const scored = rankDocumentosLegales(query, docs, limite);
 
       const juris = await db
         .select()
         .from(jurisprudencias)
-        .where(sql`${jurisprudencias.estaActiva} = 1`);
+        .where(sql`${jurisprudencias.estaActiva} = true`);
 
       const scoredJuris = rankJurisprudencia(query, juris, 3);
 
@@ -61,7 +69,7 @@ export const ragRouter = createRouter({
           .optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const { mensaje, sessionId, historial } = input;
 
@@ -98,7 +106,7 @@ export const ragRouter = createRouter({
             }
           }
         } catch (e) {
-          console.error("[rag] hybrid pipeline failed", e);
+          log.error({ err: e }, "hybrid pipeline failed");
         }
       }
 
@@ -107,14 +115,14 @@ export const ragRouter = createRouter({
         const docs = await db
           .select()
           .from(documentosLegales)
-          .where(sql`${documentosLegales.estaActiva} = 1`);
+          .where(sql`${documentosLegales.estaActiva} = true`);
 
         const scoredDocs = rankDocumentosLegales(mensaje, docs, 3);
 
         const juris = await db
           .select()
           .from(jurisprudencias)
-          .where(sql`${jurisprudencias.estaActiva} = 1`);
+          .where(sql`${jurisprudencias.estaActiva} = true`);
 
         const scoredJuris = rankJurisprudencia(mensaje, juris, 2);
 
@@ -144,11 +152,13 @@ export const ragRouter = createRouter({
 
       if (sessionId) {
         await db.insert(conversacionesRag).values({
+          userId: ctx.user.id,
           sessionId,
           role: "user",
           content: mensaje,
         });
         await db.insert(conversacionesRag).values({
+          userId: ctx.user.id,
           sessionId,
           role: "assistant",
           content: respuesta,
@@ -171,27 +181,50 @@ export const ragRouter = createRouter({
     }),
 
   conversaciones: authedQuery
-    .input(z.object({ sessionId: z.string() }))
-    .query(async ({ input }) => {
+    .input(
+      z.object({
+        sessionId: z.string(),
+        limit: z.number().int().positive().max(100).optional(),
+        cursor: z.number().int().positive().nullish(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
-      return db
+      const limit = Math.min(input.limit ?? 20, 100);
+      const cursor = input.cursor ?? null;
+      // Chronological order (ASC by id) — cursor advances forward in time.
+      const rows = await db
         .select()
         .from(conversacionesRag)
-        .where(sql`${conversacionesRag.sessionId} = ${input.sessionId}`)
-        .orderBy(conversacionesRag.createdAt);
+        .where(
+          and(
+            eq(conversacionesRag.sessionId, input.sessionId),
+            eq(conversacionesRag.userId, ctx.user.id),
+            cursor ? gt(conversacionesRag.id, cursor) : undefined
+          )
+        )
+        .orderBy(conversacionesRag.id)
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
     }),
 
-  estadisticas: authedQuery.query(async () => {
+  estadisticas: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
     const totalDocs = await db
       .select()
       .from(documentosLegales)
-      .where(sql`${documentosLegales.estaActiva} = 1`);
+      .where(sql`${documentosLegales.estaActiva} = true`);
     const totalJuris = await db
       .select()
       .from(jurisprudencias)
-      .where(sql`${jurisprudencias.estaActiva} = 1`);
-    const totalConversaciones = await db.select().from(conversacionesRag);
+      .where(sql`${jurisprudencias.estaActiva} = true`);
+    const totalConversaciones = await db
+      .select()
+      .from(conversacionesRag)
+      .where(sql`${conversacionesRag.userId} = ${ctx.user.id}`);
 
     const porNorma = totalDocs.reduce(
       (acc, d) => {

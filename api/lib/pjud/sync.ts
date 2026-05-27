@@ -9,7 +9,7 @@ import {
   obtenerMovimientos,
   type PjudCausaResult,
   type PjudMovimiento,
-} from "./client";
+} from "./index";
 
 export interface SyncResult {
   causaId: number;
@@ -70,14 +70,14 @@ function mapTipoMovimiento(
  * 3. Compares and inserts new movimientos into cronologia
  * 4. Updates estado if changed and creates an alert
  */
-export async function sincronizarCausa(causaId: number): Promise<SyncResult> {
+export async function sincronizarCausa(causaId: number, userId: number): Promise<SyncResult> {
   const db = getDb();
 
-  // 1. Get the causa from DB
+  // 1. Get the causa from DB (scoped to user)
   const causaRows = await db
     .select()
     .from(causas)
-    .where(eq(causas.id, causaId))
+    .where(and(eq(causas.id, causaId), eq(causas.userId, userId)))
     .limit(1);
 
   if (causaRows.length === 0) {
@@ -122,7 +122,7 @@ export async function sincronizarCausa(causaId: number): Promise<SyncResult> {
   const existingCronologia = await db
     .select()
     .from(cronologia)
-    .where(eq(cronologia.causaId, causaId))
+    .where(and(eq(cronologia.causaId, causaId), eq(cronologia.userId, userId)))
     .orderBy(desc(cronologia.fecha));
 
   const existingDates = new Set(
@@ -139,6 +139,7 @@ export async function sincronizarCausa(causaId: number): Promise<SyncResult> {
   // Insert new movimientos into cronologia
   for (const mov of newMovimientos) {
     await db.insert(cronologia).values({
+      userId,
       causaId,
       fecha: new Date(mov.fecha),
       tipo: mapTipoMovimiento(mov.tipo),
@@ -169,10 +170,11 @@ export async function sincronizarCausa(causaId: number): Promise<SyncResult> {
           : undefined,
         updatedAt: new Date(),
       })
-      .where(eq(causas.id, causaId));
+      .where(and(eq(causas.id, causaId), eq(causas.userId, userId)));
 
     // Create alert for estado change
     await db.insert(alertas).values({
+      userId,
       causaId,
       tipo: "cambio_estado",
       titulo: `Cambio de estado: ${causa.rit}`,
@@ -189,12 +191,13 @@ export async function sincronizarCausa(causaId: number): Promise<SyncResult> {
         fechaUltimoMovimiento: new Date(pjudResult.ultimoMovimiento.fecha),
         updatedAt: new Date(),
       })
-      .where(eq(causas.id, causaId));
+      .where(and(eq(causas.id, causaId), eq(causas.userId, userId)));
   }
 
   // Create alerts for new movimientos
   if (newMovimientos.length > 0) {
     await db.insert(alertas).values({
+      userId,
       causaId,
       tipo: "nuevo_movimiento",
       titulo: `${newMovimientos.length} nuevo(s) movimiento(s): ${causa.rit}`,
@@ -224,18 +227,18 @@ export async function sincronizarCausa(causaId: number): Promise<SyncResult> {
 /**
  * Synchronize all causas that have monitoring enabled.
  */
-export async function sincronizarTodas(): Promise<SyncResult[]> {
+export async function sincronizarTodas(userId: number): Promise<SyncResult[]> {
   const db = getDb();
 
   const causasMonitoreadas = await db
     .select()
     .from(causas)
-    .where(eq(causas.estaMonitoreando, true));
+    .where(and(eq(causas.estaMonitoreando, true), eq(causas.userId, userId)));
 
   const results: SyncResult[] = [];
 
   for (const causa of causasMonitoreadas) {
-    const result = await sincronizarCausa(causa.id);
+    const result = await sincronizarCausa(causa.id, userId);
     results.push(result);
   }
 

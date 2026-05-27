@@ -39,7 +39,9 @@ import {
 } from "lucide-react";
 
 export default function Honorarios() {
-  const { data: honorarios, isLoading } = trpc.honorario.listar.useQuery();
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: honorariosData, isLoading } = trpc.honorario.listar.useQuery({ limit: 20 });
+  const honorarios = honorariosData?.items ?? [];
   const { data: stats } = trpc.honorario.estadisticas.useQuery();
   const { data: agingData } = trpc.honorario.aging.useQuery();
   const { data: resumenMensual } = trpc.honorario.resumenMensual.useQuery();

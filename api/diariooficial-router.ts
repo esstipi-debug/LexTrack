@@ -2,13 +2,32 @@ import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { diarioOficialNormas } from "@db/schema";
-import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, lt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 
 export const diarioOficialRouter = createRouter({
-  listar: authedQuery.query(async () => {
-    const db = getDb();
-    return db.select().from(diarioOficialNormas).orderBy(desc(diarioOficialNormas.fechaPublicacion));
-  }),
+  listar: authedQuery
+    .input(paginationInput.optional())
+    .query(async ({ input }) => {
+      const db = getDb();
+      const limit = Math.min(input?.limit ?? 20, 100);
+      const cursor = input?.cursor ?? null;
+      // TODO: originally sorted by fechaPublicacion desc; cursor paginated by id desc.
+      const rows = await db
+        .select()
+        .from(diarioOficialNormas)
+        .where(cursor ? lt(diarioOficialNormas.id, cursor) : undefined)
+        .orderBy(desc(diarioOficialNormas.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
+    }),
 
   obtener: authedQuery
     .input(z.object({ id: z.number() }))
@@ -39,7 +58,7 @@ export const diarioOficialRouter = createRouter({
       if (input.termino && input.termino.trim() !== "") {
         const like = `%${input.termino.trim()}%`;
         conditions.push(
-          sql`(${diarioOficialNormas.titulo} LIKE ${like} OR ${diarioOficialNormas.extracto} LIKE ${like})`
+          sql`(${diarioOficialNormas.titulo} ILIKE ${like} OR ${diarioOficialNormas.extracto} ILIKE ${like})`
         );
       }
 

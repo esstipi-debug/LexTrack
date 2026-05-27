@@ -64,8 +64,12 @@ export default function Tareas() {
   const [fechaVencimiento, setFechaVencimiento] = useState("");
   const [causaId, setCausaId] = useState("");
 
-  const { data: tareas, isLoading } = trpc.tarea.listar.useQuery();
-  const { data: causasData } = trpc.causa.listar.useQuery();
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: tareasData, isLoading } = trpc.tarea.listar.useQuery({ limit: 20 });
+  const tareas = tareasData?.items ?? [];
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: causasResp } = trpc.causa.listar.useQuery({ limit: 100 });
+  const causasData = causasResp?.items ?? [];
   const utils = trpc.useUtils();
 
   const crearMut = trpc.tarea.crear.useMutation({
@@ -112,7 +116,7 @@ export default function Tareas() {
     });
   }
 
-  const tareasFiltradas = (tareas || []).filter((t) => {
+  const tareasFiltradas = tareas.filter((t) => {
     if (filtro === "todas") return true;
     return t.estado === filtro;
   });

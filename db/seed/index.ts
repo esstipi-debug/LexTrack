@@ -15,9 +15,20 @@ import {
   leykarinDenuncias,
   leykarinActuaciones,
   diarioOficialNormas,
+  users,
 } from "../schema";
 import { seedServiciosCompletos } from "./servicios-completos";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+
+async function getOrCreateSeedUser(db: ReturnType<typeof getDb>): Promise<number> {
+  const existing = await db.select().from(users).where(eq(users.unionId, "seed-user")).limit(1);
+  if (existing.length > 0) return existing[0].id;
+  const [u] = await db
+    .insert(users)
+    .values({ unionId: "seed-user", name: "Seed User", email: "seed@lextrack.local", role: "admin" })
+    .$returningId();
+  return u.id;
+}
 
 // ─── Importar Títulos del Código del Trabajo ─────────────────────
 import { tituloPreliminar } from "./titulo-preliminar";
@@ -96,6 +107,9 @@ async function seedCompleto() {
   console.log("\n" + "=".repeat(65));
   console.log("   LEXTRACK RAG - SEED COMPLETO DEL CODIGO DEL TRABAJO");
   console.log("=".repeat(65));
+
+  const seedUserId = await getOrCreateSeedUser(db);
+  console.log(`\n   Seed user id: ${seedUserId}`);
 
   // 1. LIMPIAR TABLAS
   console.log("\n[1/6] Limpiando tablas...");
@@ -202,39 +216,39 @@ async function seedCompleto() {
   // 5. INSERTAR CAUSAS DE EJEMPLO
   console.log("[5/6] Causas, tareas, alertas, honorarios, actividad...");
   await db.insert(causas).values([
-    { rit: "C-2024-001", caratula: "Gonzalez Perez vs Empresa Constructora Ltda.", tribunal: "1° Juzgado de Letras del Trabajo de Santiago", materia: "laboral", estado: "tramitacion", etapa: "Prueba", fechaIngreso: "2024-01-15", comuna: "Santiago", region: "Region Metropolitana" },
-    { rit: "C-2024-002", caratula: "Rodriguez Martinez vs Supermercados del Sur S.A.", tribunal: "2° Juzgado de Letras del Trabajo de Concepcion", materia: "laboral", estado: "sentencia", etapa: "Sentencia primera instancia", fechaIngreso: "2023-06-10", comuna: "Concepcion", region: "Biobio" },
-    { rit: "C-2024-003", caratula: "Silva Fuentes vs Transportes Nacional S.A.", tribunal: "3° Juzgado de Letras del Trabajo de Valparaiso", materia: "laboral", estado: "tramitacion", etapa: "Audiencia preparatoria", fechaIngreso: "2024-03-01", comuna: "Valparaiso", region: "Valparaiso" },
+    { userId: seedUserId, rit: "C-2024-001", caratula: "Gonzalez Perez vs Empresa Constructora Ltda.", tribunal: "1° Juzgado de Letras del Trabajo de Santiago", materia: "laboral", estado: "tramitacion", etapa: "Prueba", fechaIngreso: "2024-01-15", comuna: "Santiago", region: "Region Metropolitana" },
+    { userId: seedUserId, rit: "C-2024-002", caratula: "Rodriguez Martinez vs Supermercados del Sur S.A.", tribunal: "2° Juzgado de Letras del Trabajo de Concepcion", materia: "laboral", estado: "sentencia", etapa: "Sentencia primera instancia", fechaIngreso: "2023-06-10", comuna: "Concepcion", region: "Biobio" },
+    { userId: seedUserId, rit: "C-2024-003", caratula: "Silva Fuentes vs Transportes Nacional S.A.", tribunal: "3° Juzgado de Letras del Trabajo de Valparaiso", materia: "laboral", estado: "tramitacion", etapa: "Audiencia preparatoria", fechaIngreso: "2024-03-01", comuna: "Valparaiso", region: "Valparaiso" },
   ] as any);
 
   await db.insert(tareas).values([
-    { titulo: "Revisar escrito de demanda causa C-2024-001", descripcion: "Revisar y corregir escrito de demanda de tutela", estado: "pendiente", prioridad: "alta", tipo: "preparar_escrito", fechaVencimiento: "2024-12-20" },
-    { titulo: "Preparar audiencia preparatoria C-2024-003", descripcion: "Organizar pruebas y testigos", estado: "en_progreso", prioridad: "alta", tipo: "agendar_audiencia", fechaVencimiento: "2024-12-18" },
-    { titulo: "Calcular liquidación final Rodriguez Martinez", descripcion: "Calcular indemnizaciones y proporcionales", estado: "pendiente", prioridad: "media", tipo: "checklist_despido", fechaVencimiento: "2024-12-22" },
-    { titulo: "Revisar Diario Oficial - normas laborales", descripcion: "Verificar nuevas normas", estado: "pendiente", prioridad: "baja", tipo: "revisar_diario_oficial", fechaVencimiento: "2024-12-25" },
+    { userId: seedUserId, titulo: "Revisar escrito de demanda causa C-2024-001", descripcion: "Revisar y corregir escrito de demanda de tutela", estado: "pendiente", prioridad: "alta", tipo: "preparar_escrito", fechaVencimiento: "2024-12-20" },
+    { userId: seedUserId, titulo: "Preparar audiencia preparatoria C-2024-003", descripcion: "Organizar pruebas y testigos", estado: "en_progreso", prioridad: "alta", tipo: "agendar_audiencia", fechaVencimiento: "2024-12-18" },
+    { userId: seedUserId, titulo: "Calcular liquidación final Rodriguez Martinez", descripcion: "Calcular indemnizaciones y proporcionales", estado: "pendiente", prioridad: "media", tipo: "checklist_despido", fechaVencimiento: "2024-12-22" },
+    { userId: seedUserId, titulo: "Revisar Diario Oficial - normas laborales", descripcion: "Verificar nuevas normas", estado: "pendiente", prioridad: "baja", tipo: "revisar_diario_oficial", fechaVencimiento: "2024-12-25" },
   ] as any);
 
   await db.insert(alertas).values([
-    { titulo: "Plazo próximo: Contestación de demanda C-2024-001", descripcion: "El plazo vence en 5 días hábiles", prioridad: "critica", estado: "pendiente", tipo: "prazo_proximo", fechaVencimiento: "2024-12-15" },
-    { titulo: "Nueva norma laboral publicada en Diario Oficial", descripcion: "Reforma al Art. 184 bis CT sobre teletrabajo", prioridad: "media", estado: "pendiente", tipo: "cambio_normativo" },
-    { titulo: "Audiencia programada: C-2024-003", descripcion: "Audiencia preparatoria 20 de diciembre", prioridad: "alta", estado: "pendiente", tipo: "audiencia_programada", fechaEvento: "2024-12-20" },
+    { userId: seedUserId, titulo: "Plazo próximo: Contestación de demanda C-2024-001", descripcion: "El plazo vence en 5 días hábiles", prioridad: "critica", estado: "pendiente", tipo: "prazo_proximo", fechaVencimiento: "2024-12-15" },
+    { userId: seedUserId, titulo: "Nueva norma laboral publicada en Diario Oficial", descripcion: "Reforma al Art. 184 bis CT sobre teletrabajo", prioridad: "media", estado: "pendiente", tipo: "cambio_normativo" },
+    { userId: seedUserId, titulo: "Audiencia programada: C-2024-003", descripcion: "Audiencia preparatoria 20 de diciembre", prioridad: "alta", estado: "pendiente", tipo: "audiencia_programada", fechaEvento: "2024-12-20" },
   ] as any);
 
   await db.insert(honorarios).values([
-    { cliente: "Gonzalez Perez", concepto: "Honorarios primera instancia - Despido injustificado", tipo: "honorario", monto: 2500000, montoPagado: 1000000, estado: "pagado_parcial", fechaVencimiento: "2024-12-31" },
-    { cliente: "Rodriguez Martinez", concepto: "Honorarios causa despido - Sentencia favorable", tipo: "honorario", monto: 3200000, montoPagado: 0, estado: "pendiente", fechaVencimiento: "2024-12-15" },
-    { cliente: "Silva Fuentes", concepto: "Consulta inicial - Despido indirecto", tipo: "consulta", monto: 150000, montoPagado: 150000, estado: "pagado", fechaVencimiento: "2024-11-30" },
+    { userId: seedUserId, cliente: "Gonzalez Perez", concepto: "Honorarios primera instancia - Despido injustificado", tipo: "honorario", monto: 2500000, montoPagado: 1000000, estado: "pagado_parcial", fechaVencimiento: "2024-12-31" },
+    { userId: seedUserId, cliente: "Rodriguez Martinez", concepto: "Honorarios causa despido - Sentencia favorable", tipo: "honorario", monto: 3200000, montoPagado: 0, estado: "pendiente", fechaVencimiento: "2024-12-15" },
+    { userId: seedUserId, cliente: "Silva Fuentes", concepto: "Consulta inicial - Despido indirecto", tipo: "consulta", monto: 150000, montoPagado: 150000, estado: "pagado", fechaVencimiento: "2024-11-30" },
   ] as any);
 
   await db.insert(actividadReciente).values([
-    { tipo: "causa_creada", titulo: "Nueva causa: C-2024-003", descripcion: "Silva Fuentes vs Transportes Nacional S.A." },
-    { tipo: "tarea_completada", titulo: "Tarea completada: Revisión de demanda", descripcion: "Escrito de demanda C-2024-001 revisado y presentado" },
-    { tipo: "alerta_nueva", titulo: "Alerta: Plazo próximo", descripcion: "Contestación C-2024-001 vence en 5 días" },
+    { userId: seedUserId, tipo: "causa_creada", titulo: "Nueva causa: C-2024-003", descripcion: "Silva Fuentes vs Transportes Nacional S.A." },
+    { userId: seedUserId, tipo: "tarea_completada", titulo: "Tarea completada: Revisión de demanda", descripcion: "Escrito de demanda C-2024-001 revisado y presentado" },
+    { userId: seedUserId, tipo: "alerta_nueva", titulo: "Alerta: Plazo próximo", descripcion: "Contestación C-2024-001 vence en 5 días" },
   ] as any);
   console.log("       Datos insertados.\n");
 
   // 6. SERVICIOS COMPLETOS (expedientes, causas ricas, tareas, alertas, cronología, notas, honorarios, Ley Karin, Diario Oficial)
-  await seedServiciosCompletos(db);
+  await seedServiciosCompletos(db, seedUserId);
 
   // 7. VERIFICACIÓN FINAL
   console.log("[6/6] Verificando inserción...");

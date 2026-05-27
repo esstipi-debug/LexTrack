@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { rutSchema } from "@contracts/rut";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { leykarinDenuncias, leykarinActuaciones, leykarinMedidas } from "@db/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, lt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 import {
   generarProtocoloKarin,
   generarChecklistKarin,
@@ -61,7 +67,7 @@ const canalEnum = z.enum([
 
 const empresaSchema = z.object({
   razonSocial: z.string().min(1),
-  rut: z.string().min(1),
+  rut: rutSchema,
   rubro: z.string().min(1),
   domicilioPrincipal: z.string().min(1),
   dotacionTotal: z.number().int().nonnegative(),
@@ -77,7 +83,7 @@ const empresaSchema = z.object({
   telefonoDenuncias: z.string().optional(),
   urlFormulario: z.string().url().optional(),
   representanteLegalNombre: z.string().min(1),
-  representanteLegalRut: z.string().min(1),
+  representanteLegalRut: rutSchema,
   fechaVigencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
@@ -109,19 +115,42 @@ function toDateStr(v: string | Date): string {
 
 // ─── Router ─────────────────────────────────────────────────────
 export const leykarinRouter = createRouter({
-  listar: authedQuery.query(async () => {
-    const db = getDb();
-    return db.select().from(leykarinDenuncias).orderBy(desc(leykarinDenuncias.createdAt));
-  }),
+  listar: authedQuery
+    .input(paginationInput.optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const limit = Math.min(input?.limit ?? 20, 100);
+      const cursor = input?.cursor ?? null;
+      const rows = await db
+        .select()
+        .from(leykarinDenuncias)
+        .where(
+          and(
+            eq(leykarinDenuncias.userId, ctx.user.id),
+            cursor ? lt(leykarinDenuncias.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(leykarinDenuncias.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
+    }),
 
   obtener: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(eq(leykarinDenuncias.id, input.id));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.id),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
       if (!denuncia) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -131,7 +160,12 @@ export const leykarinRouter = createRouter({
       const actuaciones = await db
         .select()
         .from(leykarinActuaciones)
-        .where(eq(leykarinActuaciones.denunciaId, input.id))
+        .where(
+          and(
+            eq(leykarinActuaciones.denunciaId, input.id),
+            eq(leykarinActuaciones.userId, ctx.user.id)
+          )
+        )
         .orderBy(desc(leykarinActuaciones.fecha));
       return { ...denuncia, actuaciones };
     }),
@@ -147,9 +181,10 @@ export const leykarinRouter = createRouter({
       area: z.string().optional(),
       prioridad: z.string().default("media"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const values: Record<string, unknown> = {
+        userId: ctx.user.id,
         codigo: input.codigo,
         fechaRecepcion: new Date(input.fechaRecepcion),
         tipo: input.tipo as "acoso_laboral" | "acoso_sexual" | "violencia_laboral" | "discriminacion" | "otro",
@@ -165,7 +200,7 @@ export const leykarinRouter = createRouter({
 
   cambiarEstado: authedQuery
     .input(z.object({ id: z.number(), estado: estadoEnum }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const nuevoEstado: EstadoDenuncia = input.estado;
 
@@ -173,7 +208,12 @@ export const leykarinRouter = createRouter({
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(eq(leykarinDenuncias.id, input.id));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.id),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
 
       if (!denuncia) {
         throw new TRPCError({
@@ -188,7 +228,12 @@ export const leykarinRouter = createRouter({
       await db
         .update(leykarinDenuncias)
         .set({ estado: nuevoEstado })
-        .where(eq(leykarinDenuncias.id, input.id));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.id),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
 
       return { ok: true, de: estadoActual, a: nuevoEstado };
     }),
@@ -201,9 +246,23 @@ export const leykarinRouter = createRouter({
       descripcion: z.string(),
       actor: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      // Verify denuncia belongs to user
+      const [d] = await db
+        .select({ id: leykarinDenuncias.id })
+        .from(leykarinDenuncias)
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.denunciaId),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
+      if (!d) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
+      }
       await db.insert(leykarinActuaciones).values({
+        userId: ctx.user.id,
         denunciaId: input.denunciaId,
         fecha: new Date(input.fecha),
         tipo: input.tipo as any,
@@ -213,9 +272,12 @@ export const leykarinRouter = createRouter({
       return { ok: true };
     }),
 
-  dashboard: authedQuery.query(async () => {
+  dashboard: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const todas = await db.select().from(leykarinDenuncias);
+    const todas = await db
+      .select()
+      .from(leykarinDenuncias)
+      .where(eq(leykarinDenuncias.userId, ctx.user.id));
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
@@ -259,12 +321,17 @@ export const leykarinRouter = createRouter({
 
   calcularPlazo: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(eq(leykarinDenuncias.id, input.id));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.id),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
 
       if (!denuncia) {
         throw new TRPCError({
@@ -317,12 +384,17 @@ export const leykarinRouter = createRouter({
       receptor: z.string().min(1),
       receptorCargo: z.string().min(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(eq(leykarinDenuncias.id, input.denunciaId));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.denunciaId),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
 
       if (!denuncia) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
@@ -367,12 +439,17 @@ export const leykarinRouter = createRouter({
       medidasPropuestas: z.array(z.string()).default([]),
       sancionesPropuestas: z.array(z.string()).default([]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(eq(leykarinDenuncias.id, input.denunciaId));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.denunciaId),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
 
       if (!denuncia) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
@@ -381,7 +458,12 @@ export const leykarinRouter = createRouter({
       const actuaciones = await db
         .select()
         .from(leykarinActuaciones)
-        .where(eq(leykarinActuaciones.denunciaId, input.denunciaId))
+        .where(
+          and(
+            eq(leykarinActuaciones.denunciaId, input.denunciaId),
+            eq(leykarinActuaciones.userId, ctx.user.id)
+          )
+        )
         .orderBy(leykarinActuaciones.fecha);
 
       const informeInput: InformeFinalInput = {
@@ -436,12 +518,17 @@ export const leykarinRouter = createRouter({
       fechaInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       fundamentoLegal: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(eq(leykarinDenuncias.id, input.denunciaId));
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.denunciaId),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
 
       if (!denuncia) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
@@ -477,9 +564,23 @@ export const leykarinRouter = createRouter({
       fechaInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       fechaFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      // Verify denuncia ownership
+      const [d] = await db
+        .select({ id: leykarinDenuncias.id })
+        .from(leykarinDenuncias)
+        .where(
+          and(
+            eq(leykarinDenuncias.id, input.denunciaId),
+            eq(leykarinDenuncias.userId, ctx.user.id)
+          )
+        );
+      if (!d) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
+      }
       await db.insert(leykarinMedidas).values({
+        userId: ctx.user.id,
         denunciaId: input.denunciaId,
         tipo: input.tipo,
         descripcion: input.descripcion,
@@ -491,14 +592,33 @@ export const leykarinRouter = createRouter({
     }),
 
   listarMedidas: authedQuery
-    .input(z.object({ denunciaId: z.number() }))
-    .query(async ({ input }) => {
+    .input(
+      z.object({
+        denunciaId: z.number(),
+        limit: z.number().int().positive().max(100).optional(),
+        cursor: z.number().int().positive().nullish(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
-      return db
+      const limit = Math.min(input.limit ?? 20, 100);
+      const cursor = input.cursor ?? null;
+      const rows = await db
         .select()
         .from(leykarinMedidas)
-        .where(eq(leykarinMedidas.denunciaId, input.denunciaId))
-        .orderBy(desc(leykarinMedidas.createdAt));
+        .where(
+          and(
+            eq(leykarinMedidas.denunciaId, input.denunciaId),
+            eq(leykarinMedidas.userId, ctx.user.id),
+            cursor ? lt(leykarinMedidas.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(leykarinMedidas.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
     }),
 
   finalizarMedida: authedQuery
@@ -506,25 +626,33 @@ export const leykarinRouter = createRouter({
       id: z.number(),
       fechaFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const fechaFin = input.fechaFin ? new Date(input.fechaFin) : new Date();
       await db
         .update(leykarinMedidas)
         .set({ estado: "finalizada" as any, fechaFin })
-        .where(eq(leykarinMedidas.id, input.id));
+        .where(
+          and(
+            eq(leykarinMedidas.id, input.id),
+            eq(leykarinMedidas.userId, ctx.user.id)
+          )
+        );
       return { ok: true };
     }),
 
   // ─── Alertas automáticas de plazos ────────────────────────────
 
-  alertasAutomaticas: authedQuery.query(async () => {
+  alertasAutomaticas: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
     const denuncias = await db
       .select()
       .from(leykarinDenuncias)
       .where(
-        sql`${leykarinDenuncias.estado} IN ('recepcionada', 'evaluacion', 'investigacion')`
+        and(
+          eq(leykarinDenuncias.userId, ctx.user.id),
+          sql`${leykarinDenuncias.estado} IN ('recepcionada', 'evaluacion', 'investigacion')`
+        )
       );
 
     const hoy = new Date();
@@ -622,9 +750,12 @@ export const leykarinRouter = createRouter({
     return alertas;
   }),
 
-  estadisticas: authedQuery.query(async () => {
+  estadisticas: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const todas = await db.select().from(leykarinDenuncias);
+    const todas = await db
+      .select()
+      .from(leykarinDenuncias)
+      .where(eq(leykarinDenuncias.userId, ctx.user.id));
     const porEstado = todas.reduce((acc, d) => {
       acc[d.estado] = (acc[d.estado] || 0) + 1;
       return acc;

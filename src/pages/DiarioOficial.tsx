@@ -165,10 +165,12 @@ export default function DiarioOficial() {
   const [busquedaActiva, setBusquedaActiva] = useState(false);
 
   const { data: dashboard } = trpc.diarioOficial.dashboard.useQuery();
-  const { data: normasLista, isLoading: loadingLista } = trpc.diarioOficial.listar.useQuery(
-    undefined,
+  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const { data: normasListaResp, isLoading: loadingLista } = trpc.diarioOficial.listar.useQuery(
+    { limit: 20 },
     { enabled: !busquedaActiva }
   );
+  const normasLista = normasListaResp?.items;
   const { data: normasBusqueda, isLoading: loadingBusqueda } = trpc.diarioOficial.buscar.useQuery(
     {
       termino: termino || undefined,
