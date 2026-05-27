@@ -2,18 +2,33 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Scale, Search, Gavel } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useDebounce } from "@/hooks/use-debounce";
 
 export default function Jurisprudencia() {
   const [query, setQuery] = useState("");
-  const { data: allJuris } = trpc.jurisprudencia.listar.useQuery();
+  const debouncedQuery = useDebounce(query, 300);
+  const {
+    data: allJurisInfinite,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.jurisprudencia.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const allJuris = allJurisInfinite?.pages.flatMap((p) => p.items) ?? [];
   const { data: searchResults, isLoading } = trpc.jurisprudencia.buscar.useQuery(
-    { query },
-    { enabled: query.length > 2 }
+    { query: debouncedQuery },
+    { enabled: debouncedQuery.length > 2 }
   );
 
-  const displayData = query.length > 2 ? searchResults : allJuris;
+  const displayData = debouncedQuery.length > 2 ? searchResults : allJuris;
 
   return (
     <div className="space-y-4">
@@ -35,7 +50,7 @@ export default function Jurisprudencia() {
       </div>
 
       <div className="grid gap-3">
-        {isLoading && query.length > 2 && <p className="text-gray-400">Buscando...</p>}
+        {isLoading && debouncedQuery.length > 2 && <p className="text-gray-400">Buscando...</p>}
 
         {(displayData || []).map((j) => (
           <Card key={j.id}>
@@ -78,8 +93,19 @@ export default function Jurisprudencia() {
 
         {(!displayData || displayData.length === 0) && !isLoading && (
           <p className="text-gray-400 text-center py-8">
-            {query.length > 2 ? "No se encontraron resultados" : "No hay jurisprudencia registrada"}
+            {debouncedQuery.length > 2 ? "No se encontraron resultados" : "No hay jurisprudencia registrada"}
           </p>
+        )}
+        {debouncedQuery.length <= 2 && hasNextPage && (
+          <div className="flex justify-center py-4">
+            <Button
+              variant="outline"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+            </Button>
+          </div>
         )}
       </div>
     </div>

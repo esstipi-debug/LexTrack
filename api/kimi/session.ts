@@ -1,6 +1,9 @@
 import * as jose from "jose";
 import { env } from "../lib/env";
+import { createLogger } from "../lib/logger";
 import type { SessionPayload } from "./types";
+
+const log = createLogger("kimi/session");
 
 const JWT_ALG = "HS256";
 
@@ -19,7 +22,7 @@ export async function verifySessionToken(
   token: string,
 ): Promise<SessionPayload | null> {
   if (!token) {
-    console.warn("[session] No token provided for verification.");
+    log.warn("No token provided for verification.");
     return null;
   }
   try {
@@ -29,12 +32,12 @@ export async function verifySessionToken(
     });
     const { unionId, clientId } = payload;
     if (!unionId || !clientId) {
-      console.warn("[session] JWT payload missing required fields.");
+      log.warn("JWT payload missing required fields.");
       return null;
     }
     return { unionId, clientId } as SessionPayload;
   } catch (error) {
-    console.warn("[session] JWT verification failed:", error);
+    log.warn({ err: error }, "JWT verification failed");
     return null;
   }
 }

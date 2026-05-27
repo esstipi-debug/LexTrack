@@ -59,8 +59,15 @@ export default function PoderJudicial() {
     { enabled: searchType === "rut" && activeQuery.length > 0 },
   );
 
-  // Local causas for comparison
-  const { data: localCausas } = trpc.causa.listar.useQuery();
+  // Local causas for comparison (flattened across pages)
+  const { data: localCausasInfinite } = trpc.causa.listar.useInfiniteQuery(
+    { limit: 100 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const localCausas = localCausasInfinite?.pages.flatMap((p) => p.items);
 
   // Mutations
   const importarMutation = trpc.pjud.importar.useMutation();

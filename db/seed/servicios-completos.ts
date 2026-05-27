@@ -16,12 +16,16 @@ import {
 // Pobla todas las tablas operacionales para que los agentes funcionen
 // ====================================================================
 
-export async function seedServiciosCompletos(db: any) {
+export async function seedServiciosCompletos(db: any, userId: number) {
   console.log("\n[SC] Insertando datos de servicios completos...");
+
+  // Helper: stamp userId on every row before insert (idempotent if already set).
+  const withUser = <T extends Record<string, unknown>>(rows: T[]): T[] =>
+    rows.map((r) => ({ userId, ...r }));
 
   // ─── 1. EXPEDIENTES ──────────────────────────────────────────────
   console.log("  [1/10] Expedientes...");
-  const expedientesData = await db.insert(expedientes).values([
+  const expedientesData = await db.insert(expedientes).values(withUser([
     {
       codigo: "EXP-2025-001",
       nombre: "Despido Injustificado - Martínez Rojas",
@@ -97,13 +101,13 @@ export async function seedServiciosCompletos(db: any) {
       fechaInicio: "2024-03-01",
       fechaEstimadaCierre: "2025-03-01",
     },
-  ] as any).$returningId();
+  ]) as any).$returningId();
 
   const expIds = expedientesData.map((e: { id: number }) => e.id);
 
   // ─── 2. CAUSAS ───────────────────────────────────────────────────
   console.log("  [2/10] Causas...");
-  const causasData = await db.insert(causas).values([
+  const causasData = await db.insert(causas).values(withUser([
     {
       rit: "T-234-2025",
       ruc: "C-12345-2025-LAB",
@@ -256,13 +260,13 @@ export async function seedServiciosCompletos(db: any) {
       estaMonitoreando: false,
       fuente: "consulta_unificada" as const,
     },
-  ] as any).$returningId();
+  ]) as any).$returningId();
 
   const causaIds = causasData.map((c: { id: number }) => c.id);
 
   // ─── 3. TAREAS ───────────────────────────────────────────────────
   console.log("  [3/10] Tareas...");
-  await db.insert(tareas).values([
+  await db.insert(tareas).values(withUser([
     {
       titulo: "Revisar contestación demanda C-456",
       descripcion: "Revisar contestación presentada por Constructora Los Andes S.A. y elaborar estrategia de réplica.",
@@ -476,11 +480,11 @@ export async function seedServiciosCompletos(db: any) {
       notas: "Citar jurisprudencia reciente CS en casos de tutela y embarazo",
       etiquetas: "alegatos,tutela,embarazo,cierre",
     },
-  ] as any);
+  ]) as any);
 
   // ─── 4. ALERTAS ──────────────────────────────────────────────────
   console.log("  [4/10] Alertas...");
-  await db.insert(alertas).values([
+  await db.insert(alertas).values(withUser([
     {
       causaId: causaIds[1],
       expedienteId: expIds[1],
@@ -602,11 +606,11 @@ export async function seedServiciosCompletos(db: any) {
       fechaVencimiento: null,
       metadata: { numero_dictamen: "1523/2026", materia: "teletrabajo", url_dt: "https://www.dt.gob.cl/dictamenes" },
     },
-  ] as any);
+  ]) as any);
 
   // ─── 5. CRONOLOGIA ───────────────────────────────────────────────
   console.log("  [5/10] Cronología...");
-  await db.insert(cronologia).values([
+  await db.insert(cronologia).values(withUser([
     {
       causaId: causaIds[0],
       expedienteId: expIds[0],
@@ -739,11 +743,11 @@ export async function seedServiciosCompletos(db: any) {
       actor: "Juez Roberto Pizarro Vargas",
       fuente: "pjud",
     },
-  ] as any);
+  ]) as any);
 
   // ─── 6. NOTAS ────────────────────────────────────────────────────
   console.log("  [6/10] Notas...");
-  await db.insert(notas).values([
+  await db.insert(notas).values(withUser([
     {
       contenido: "ESTRATEGIA: En caso Martínez Rojas, fortalecer argumento sobre falta de carta de aviso. El despido fue verbal según cliente. Buscar testigos que puedan corroborar. Solicitar correos electrónicos vía art. 453 CT.",
       causaId: causaIds[0],
@@ -800,11 +804,11 @@ export async function seedServiciosCompletos(db: any) {
       autor: "Sebastián Moya Lagos",
       tipo: "estrategia" as const,
     },
-  ] as any);
+  ]) as any);
 
   // ─── 7. HONORARIOS ───────────────────────────────────────────────
   console.log("  [7/10] Honorarios...");
-  await db.insert(honorarios).values([
+  await db.insert(honorarios).values(withUser([
     {
       causaId: causaIds[0],
       expedienteId: expIds[0],
@@ -984,11 +988,11 @@ export async function seedServiciosCompletos(db: any) {
       numeroFactura: "FAC-2026-0089",
       observaciones: "Pago a perito médico por informe de incapacidad. A recuperar al ganar el juicio.",
     },
-  ] as any);
+  ]) as any);
 
   // ─── 8. LEY KARIN - DENUNCIAS ────────────────────────────────────
   console.log("  [8/10] Ley Karin - Denuncias...");
-  const denunciasData = await db.insert(leykarinDenuncias).values([
+  const denunciasData = await db.insert(leykarinDenuncias).values(withUser([
     {
       codigo: "LK-2026-001",
       fechaRecepcion: "2026-04-10",
@@ -1068,13 +1072,13 @@ export async function seedServiciosCompletos(db: any) {
       medidasCautelares: null,
       anonimizada: true,
     },
-  ] as any).$returningId();
+  ]) as any).$returningId();
 
   const denunciaIds = denunciasData.map((d: { id: number }) => d.id);
 
   // ─── 9. LEY KARIN - ACTUACIONES ──────────────────────────────────
   console.log("  [9/10] Ley Karin - Actuaciones...");
-  await db.insert(leykarinActuaciones).values([
+  await db.insert(leykarinActuaciones).values(withUser([
     {
       denunciaId: denunciaIds[0],
       fecha: "2026-04-10",
@@ -1121,7 +1125,7 @@ export async function seedServiciosCompletos(db: any) {
       horaFin: "12:30",
       documento: "Informe Final Investigación LK-2025-018 - 35 páginas. Conclusiones: hechos acreditados. Medida: Despido Art. 160 N°1 b CT.",
     },
-  ] as any);
+  ]) as any);
 
   // ─── 10. DIARIO OFICIAL NORMAS ───────────────────────────────────
   console.log("  [10/10] Diario Oficial - Normas...");

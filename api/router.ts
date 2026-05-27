@@ -1,6 +1,7 @@
 import { authRouter } from "./auth-router";
 import { createRouter, publicQuery } from "./middleware";
 import { ragRouter } from "./rag-router";
+import { billingRouter } from "./billing-router";
 import { causaRouter } from "./causa-router";
 import { alertaRouter } from "./alerta-router";
 import { tareaRouter } from "./tarea-router";
@@ -13,6 +14,9 @@ import { diarioOficialRouter } from "./diariooficial-router";
 import { agentRouter } from "./agent-router";
 import { statsRouter } from "./stats-router";
 import { pjudRouter } from "./pjud-router";
+import { jobsRouter } from "./jobs-router";
+import { orgRouter } from "./org-router";
+import { pdfRouter } from "./pdf-router";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -30,6 +34,10 @@ export const appRouter = createRouter({
   agent: agentRouter,
   stats: statsRouter,
   pjud: pjudRouter,
+  jobs: jobsRouter,
+  org: orgRouter,
+  pdf: pdfRouter,
+  billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;

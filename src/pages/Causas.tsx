@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
+import { trackEvent } from "@/lib/analytics";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
@@ -26,7 +27,19 @@ import {
 } from "@/components/ui/select";
 
 export default function Causas() {
-  const { data: causas, isLoading } = trpc.causa.listar.useQuery();
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.causa.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    }
+  );
+  const causas = data?.pages.flatMap((p) => p.items) ?? [];
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -40,6 +53,7 @@ export default function Causas() {
 
   const crear = trpc.causa.crear.useMutation({
     onSuccess: () => {
+      trackEvent('causa_created', { materia });
       utils.causa.listar.invalidate();
       setOpen(false);
       resetForm();
@@ -71,7 +85,7 @@ export default function Causas() {
     });
   }
 
-  const filtered = causas?.filter(c =>
+  const filtered = causas.filter(c =>
     !search || c.caratula?.toLowerCase().includes(search.toLowerCase()) || c.rit?.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -201,6 +215,17 @@ export default function Causas() {
           ))}
           {(!filtered || filtered.length === 0) && (
             <p className="text-gray-400 text-center py-8">No se encontraron causas</p>
+          )}
+          {hasNextPage && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+              </Button>
+            </div>
           )}
         </div>
       )}

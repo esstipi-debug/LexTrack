@@ -42,7 +42,20 @@ const categoriaColor: Record<string, string> = {
 };
 
 export default function Checklists() {
-  const { data: templates, isLoading } = trpc.checklist.templates.useQuery();
+  const {
+    data: templatesInfinite,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.checklist.templates.useInfiniteQuery(
+    { limit: 100 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const templates = templatesInfinite?.pages.flatMap((p) => p.items);
 
   // Dialog state for starting execution
   const [startOpen, setStartOpen] = useState(false);
@@ -144,6 +157,17 @@ export default function Checklists() {
           {(!templates || templates.length === 0) && (
             <p className="text-gray-400 text-center py-8 col-span-2">No hay templates disponibles</p>
           )}
+          {hasNextPage && (
+            <div className="flex justify-center py-4 col-span-2">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -200,7 +224,20 @@ function ChecklistExecution({
   templateNombre: string;
   onBack: () => void;
 }) {
-  const { data: items, isLoading: itemsLoading } = trpc.checklist.items.useQuery({ templateId });
+  const {
+    data: itemsInfinite,
+    isLoading: itemsLoading,
+    fetchNextPage: fetchNextItems,
+    hasNextPage: hasNextItems,
+    isFetchingNextPage: isFetchingNextItems,
+  } = trpc.checklist.items.useInfiniteQuery(
+    { templateId, limit: 100 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const items = itemsInfinite?.pages.flatMap((p) => p.items);
   const { data: completados } = trpc.checklist.progreso.useQuery({ ejecucionId });
 
   const utils = trpc.useUtils();
@@ -326,6 +363,17 @@ function ChecklistExecution({
           })}
           {sortedItems.length === 0 && (
             <p className="text-gray-400 text-center py-8">No hay items en este checklist</p>
+          )}
+          {hasNextItems && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextItems()}
+                disabled={isFetchingNextItems}
+              >
+                {isFetchingNextItems ? "Cargando..." : "Cargar más"}
+              </Button>
+            </div>
           )}
         </div>
       )}

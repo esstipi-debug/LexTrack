@@ -165,10 +165,21 @@ export default function DiarioOficial() {
   const [busquedaActiva, setBusquedaActiva] = useState(false);
 
   const { data: dashboard } = trpc.diarioOficial.dashboard.useQuery();
-  const { data: normasLista, isLoading: loadingLista } = trpc.diarioOficial.listar.useQuery(
-    undefined,
-    { enabled: !busquedaActiva }
+  const {
+    data: normasListaInfinite,
+    isLoading: loadingLista,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.diarioOficial.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+      enabled: !busquedaActiva,
+    }
   );
+  const normasLista = normasListaInfinite?.pages.flatMap((p) => p.items);
   const { data: normasBusqueda, isLoading: loadingBusqueda } = trpc.diarioOficial.buscar.useQuery(
     {
       termino: termino || undefined,
@@ -366,6 +377,17 @@ export default function DiarioOficial() {
             <p className="text-gray-400 text-center py-8">
               {busquedaActiva ? "No se encontraron normas con los filtros aplicados" : "No hay normas registradas"}
             </p>
+          )}
+          {!busquedaActiva && hasNextPage && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+              </Button>
+            </div>
           )}
         </div>
       )}

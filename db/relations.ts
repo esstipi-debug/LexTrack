@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  users,
   causas,
   expedientes,
   alertas,
@@ -13,9 +14,28 @@ import {
   checklistCompletados,
   leykarinDenuncias,
   leykarinActuaciones,
+  organizations,
+  orgMembers,
+  invites,
 } from "./schema";
 
-export const expedientesRelations = relations(expedientes, ({ many }) => ({
+export const usersRelations = relations(users, ({ many }) => ({
+  expedientes: many(expedientes),
+  causas: many(causas),
+  alertas: many(alertas),
+  tareas: many(tareas),
+  documentos: many(documentos),
+  cronologia: many(cronologia),
+  notas: many(notas),
+  checklistEjecuciones: many(checklistEjecuciones),
+  checklistCompletados: many(checklistCompletados),
+  leykarinDenuncias: many(leykarinDenuncias),
+  leykarinActuaciones: many(leykarinActuaciones),
+  orgMembers: many(orgMembers),
+}));
+
+export const expedientesRelations = relations(expedientes, ({ one, many }) => ({
+  user: one(users, { fields: [expedientes.userId], references: [users.id] }),
   causas: many(causas),
   alertas: many(alertas),
   tareas: many(tareas),
@@ -26,6 +46,7 @@ export const expedientesRelations = relations(expedientes, ({ many }) => ({
 }));
 
 export const causasRelations = relations(causas, ({ one, many }) => ({
+  user: one(users, { fields: [causas.userId], references: [users.id] }),
   expediente: one(expedientes, {
     fields: [causas.expedienteId],
     references: [expedientes.id],
@@ -39,6 +60,7 @@ export const causasRelations = relations(causas, ({ one, many }) => ({
 }));
 
 export const alertasRelations = relations(alertas, ({ one }) => ({
+  user: one(users, { fields: [alertas.userId], references: [users.id] }),
   causa: one(causas, {
     fields: [alertas.causaId],
     references: [causas.id],
@@ -50,6 +72,7 @@ export const alertasRelations = relations(alertas, ({ one }) => ({
 }));
 
 export const tareasRelations = relations(tareas, ({ one }) => ({
+  user: one(users, { fields: [tareas.userId], references: [users.id] }),
   causa: one(causas, {
     fields: [tareas.causaId],
     references: [causas.id],
@@ -61,6 +84,7 @@ export const tareasRelations = relations(tareas, ({ one }) => ({
 }));
 
 export const documentosRelations = relations(documentos, ({ one }) => ({
+  user: one(users, { fields: [documentos.userId], references: [users.id] }),
   causa: one(causas, {
     fields: [documentos.causaId],
     references: [causas.id],
@@ -72,6 +96,7 @@ export const documentosRelations = relations(documentos, ({ one }) => ({
 }));
 
 export const cronologiaRelations = relations(cronologia, ({ one }) => ({
+  user: one(users, { fields: [cronologia.userId], references: [users.id] }),
   causa: one(causas, {
     fields: [cronologia.causaId],
     references: [causas.id],
@@ -83,6 +108,7 @@ export const cronologiaRelations = relations(cronologia, ({ one }) => ({
 }));
 
 export const notasRelations = relations(notas, ({ one }) => ({
+  user: one(users, { fields: [notas.userId], references: [users.id] }),
   causa: one(causas, {
     fields: [notas.causaId],
     references: [causas.id],
@@ -115,6 +141,10 @@ export const checklistItemsRelations = relations(
 export const checklistEjecucionesRelations = relations(
   checklistEjecuciones,
   ({ one, many }) => ({
+    user: one(users, {
+      fields: [checklistEjecuciones.userId],
+      references: [users.id],
+    }),
     template: one(checklistTemplates, {
       fields: [checklistEjecuciones.templateId],
       references: [checklistTemplates.id],
@@ -134,6 +164,10 @@ export const checklistEjecucionesRelations = relations(
 export const checklistCompletadosRelations = relations(
   checklistCompletados,
   ({ one }) => ({
+    user: one(users, {
+      fields: [checklistCompletados.userId],
+      references: [users.id],
+    }),
     ejecucion: one(checklistEjecuciones, {
       fields: [checklistCompletados.ejecucionId],
       references: [checklistEjecuciones.id],
@@ -147,7 +181,11 @@ export const checklistCompletadosRelations = relations(
 
 export const leykarinDenunciasRelations = relations(
   leykarinDenuncias,
-  ({ many }) => ({
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [leykarinDenuncias.userId],
+      references: [users.id],
+    }),
     actuaciones: many(leykarinActuaciones),
   })
 );
@@ -155,9 +193,43 @@ export const leykarinDenunciasRelations = relations(
 export const leykarinActuacionesRelations = relations(
   leykarinActuaciones,
   ({ one }) => ({
+    user: one(users, {
+      fields: [leykarinActuaciones.userId],
+      references: [users.id],
+    }),
     denuncia: one(leykarinDenuncias, {
       fields: [leykarinActuaciones.denunciaId],
       references: [leykarinDenuncias.id],
     }),
   })
 );
+
+export const organizationsRelations = relations(
+  organizations,
+  ({ many }) => ({
+    members: many(orgMembers),
+    invites: many(invites),
+  })
+);
+
+export const orgMembersRelations = relations(orgMembers, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [orgMembers.orgId],
+    references: [organizations.id],
+  }),
+  user: one(users, {
+    fields: [orgMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const invitesRelations = relations(invites, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [invites.orgId],
+    references: [organizations.id],
+  }),
+  invitedByUser: one(users, {
+    fields: [invites.invitedByUserId],
+    references: [users.id],
+  }),
+}));

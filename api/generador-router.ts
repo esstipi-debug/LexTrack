@@ -19,7 +19,7 @@ function scoreDocument(query: string, doc: { titulo: string; contenido: string; 
 
 async function recuperarContexto(tema: string): Promise<string[]> {
   const db = getDb();
-  const docs = await db.select().from(documentosLegales).where(sql`${documentosLegales.estaActiva} = 1`);
+  const docs = await db.select().from(documentosLegales).where(sql`${documentosLegales.estaActiva} = true`);
   const scored = docs
     .map(d => ({ ...d, score: scoreDocument(tema, d) }))
     .filter(d => d.score > 0.5)

@@ -9,7 +9,10 @@ import { Errors } from "@contracts/errors";
 import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
+import { createLogger } from "../lib/logger";
 import type { TokenResponse } from "./types";
+
+const log = createLogger("kimi/auth");
 
 async function exchangeAuthCode(
   code: string,
@@ -57,7 +60,7 @@ export async function authenticateRequest(headers: Headers) {
   const cookies = cookie.parse(headers.get("cookie") || "");
   const token = cookies[Session.cookieName];
   if (!token) {
-    console.warn("[auth] No session cookie found in request.");
+    log.warn("No session cookie found in request.");
     throw Errors.forbidden("Invalid authentication token.");
   }
   const claim = await verifySessionToken(token);
@@ -69,6 +72,20 @@ export async function authenticateRequest(headers: Headers) {
     throw Errors.forbidden("User not found. Please re-login.");
   }
   return user;
+}
+
+function safeRedirectUrl(state: string, fallback: string): string {
+  try {
+    const decoded = atob(state);
+    const url = new URL(decoded);
+    // Only allow same-origin or relative redirects
+    const allowed = process.env.APP_URL ?? 'http://localhost:5173';
+    const allowedOrigin = new URL(allowed).origin;
+    if (url.origin === allowedOrigin || decoded.startsWith('/')) {
+      return decoded;
+    }
+  } catch {}
+  return fallback;
 }
 
 export function createOAuthCallbackHandler() {
@@ -93,7 +110,7 @@ export function createOAuthCallbackHandler() {
     }
 
     try {
-      const redirectUri = atob(state);
+      const redirectUri = safeRedirectUrl(state, '/dashboard');
       const tokenResp = await exchangeAuthCode(code, redirectUri);
       const { userId } = await verifyAccessToken(tokenResp.access_token);
       const userProfile = await kimiUsers.getProfile(tokenResp.access_token);
@@ -121,7 +138,7 @@ export function createOAuthCallbackHandler() {
 
       return c.redirect("/", 302);
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      log.error({ err: error }, "OAuth callback failed");
       return c.json({ error: "OAuth callback failed" }, 500);
     }
   };

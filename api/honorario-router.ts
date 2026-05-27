@@ -2,7 +2,12 @@ import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { honorarios } from "@db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, lt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 import { calcularInteresMora } from "./lib/cobranza/intereses";
 import {
   generarEstadoCuenta,
@@ -11,10 +16,28 @@ import {
 } from "./lib/cobranza/reportes";
 
 export const honorarioRouter = createRouter({
-  listar: authedQuery.query(async () => {
-    const db = getDb();
-    return db.select().from(honorarios).orderBy(desc(honorarios.createdAt));
-  }),
+  listar: authedQuery
+    .input(paginationInput.optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const limit = Math.min(input?.limit ?? 20, 100);
+      const cursor = input?.cursor ?? null;
+      const rows = await db
+        .select()
+        .from(honorarios)
+        .where(
+          and(
+            eq(honorarios.userId, ctx.user.id),
+            cursor ? lt(honorarios.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(honorarios.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
+    }),
 
   crear: authedQuery
     .input(z.object({
@@ -25,11 +48,12 @@ export const honorarioRouter = createRouter({
       estado: z.string().default("pendiente"),
       fechaVencimiento: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const { fechaVencimiento, ...rest } = input;
       const values: any = {
         ...rest,
+        userId: ctx.user.id,
         fechaVencimiento: fechaVencimiento ? new Date(fechaVencimiento) : null,
       };
       const [result] = await db.insert(honorarios).values(values).$returningId();
@@ -38,19 +62,33 @@ export const honorarioRouter = createRouter({
 
   registrarPago: authedQuery
     .input(z.object({ id: z.number(), monto: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const h = await db.select().from(honorarios).where(eq(honorarios.id, input.id)).limit(1);
+      const h = await db
+        .select()
+        .from(honorarios)
+        .where(
+          and(eq(honorarios.id, input.id), eq(honorarios.userId, ctx.user.id))
+        )
+        .limit(1);
       if (h.length === 0) return { ok: false };
       const nuevoPagado = (h[0].montoPagado || 0) + input.monto;
       const nuevoEstado = nuevoPagado >= h[0].monto ? "pagado" : "pagado_parcial";
-      await db.update(honorarios).set({ montoPagado: nuevoPagado, estado: nuevoEstado }).where(eq(honorarios.id, input.id));
+      await db
+        .update(honorarios)
+        .set({ montoPagado: nuevoPagado, estado: nuevoEstado })
+        .where(
+          and(eq(honorarios.id, input.id), eq(honorarios.userId, ctx.user.id))
+        );
       return { ok: true };
     }),
 
-  estadisticas: authedQuery.query(async () => {
+  estadisticas: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const todos = await db.select().from(honorarios);
+    const todos = await db
+      .select()
+      .from(honorarios)
+      .where(eq(honorarios.userId, ctx.user.id));
     const totalFacturado = todos.reduce((a, h) => a + h.monto, 0);
     const totalPagado = todos.reduce((a, h) => a + (h.montoPagado || 0), 0);
     const pendientes = todos.filter(h => h.estado === "pendiente" || h.estado === "pagado_parcial");
@@ -66,12 +104,14 @@ export const honorarioRouter = createRouter({
   // ─── Cobranza: Calcular intereses ────────────────────────────────
   calcularIntereses: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const rows = await db
         .select()
         .from(honorarios)
-        .where(eq(honorarios.id, input.id))
+        .where(
+          and(eq(honorarios.id, input.id), eq(honorarios.userId, ctx.user.id))
+        )
         .limit(1);
       if (rows.length === 0) return null;
       const h = rows[0];
@@ -100,33 +140,43 @@ export const honorarioRouter = createRouter({
   // ─── Cobranza: Estado de cuenta por cliente ─────────────────────
   estadoCuenta: authedQuery
     .input(z.object({ cliente: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const rows = await db
         .select()
         .from(honorarios)
-        .where(eq(honorarios.cliente, input.cliente))
+        .where(
+          and(
+            eq(honorarios.cliente, input.cliente),
+            eq(honorarios.userId, ctx.user.id)
+          )
+        )
         .orderBy(desc(honorarios.createdAt));
       const markdown = generarEstadoCuenta(input.cliente, rows);
       return { cliente: input.cliente, total: rows.length, markdown };
     }),
 
   // ─── Cobranza: Reporte general ──────────────────────────────────
-  reporteCobranza: authedQuery.query(async () => {
+  reporteCobranza: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const todos = await db.select().from(honorarios);
+    const todos = await db
+      .select()
+      .from(honorarios)
+      .where(eq(honorarios.userId, ctx.user.id));
     return generarReporteCobranza(todos);
   }),
 
   // ─── Cobranza: Carta de cobranza ────────────────────────────────
   generarCartaCobranza: authedQuery
     .input(z.object({ id: z.number(), numero: z.number().min(1).max(3) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const rows = await db
         .select()
         .from(honorarios)
-        .where(eq(honorarios.id, input.id))
+        .where(
+          and(eq(honorarios.id, input.id), eq(honorarios.userId, ctx.user.id))
+        )
         .limit(1);
       if (rows.length === 0) return null;
       const markdown = generarCartaCobranza(rows[0], input.numero);
@@ -138,9 +188,12 @@ export const honorarioRouter = createRouter({
     }),
 
   // ─── Cobranza: Resumen mensual ──────────────────────────────────
-  resumenMensual: authedQuery.query(async () => {
+  resumenMensual: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const todos = await db.select().from(honorarios);
+    const todos = await db
+      .select()
+      .from(honorarios)
+      .where(eq(honorarios.userId, ctx.user.id));
 
     const now = new Date();
     const mesActual = now.getMonth();
@@ -194,9 +247,12 @@ export const honorarioRouter = createRouter({
   }),
 
   // ─── Cobranza: Aging report ─────────────────────────────────────
-  aging: authedQuery.query(async () => {
+  aging: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const todos = await db.select().from(honorarios);
+    const todos = await db
+      .select()
+      .from(honorarios)
+      .where(eq(honorarios.userId, ctx.user.id));
 
     const pendientes = todos.filter(
       (h) => h.estado !== "pagado" && h.monto - (h.montoPagado || 0) > 0,

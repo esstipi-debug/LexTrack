@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
+import { formatRut, isValidRut } from "@contracts/rut";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { ExportPdfButton } from "@/components/ExportPdfButton";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -131,6 +133,7 @@ export default function LeyKarinProtocolo() {
       return !!(
         form.razonSocial &&
         form.rut &&
+        isValidRut(form.rut) &&
         form.rubro &&
         form.domicilioPrincipal &&
         form.dotacionTotal
@@ -146,6 +149,7 @@ export default function LeyKarinProtocolo() {
       return !!(
         form.representanteLegalNombre &&
         form.representanteLegalRut &&
+        isValidRut(form.representanteLegalRut) &&
         form.fechaVigencia
       );
     return true;
@@ -268,8 +272,15 @@ export default function LeyKarinProtocolo() {
                 <Input
                   value={form.rut}
                   onChange={(e) => update("rut", e.target.value)}
+                  onBlur={(e) => {
+                    const v = e.target.value;
+                    if (v && isValidRut(v)) update("rut", formatRut(v));
+                  }}
                   placeholder="76.123.456-7"
                 />
+                {form.rut && !isValidRut(form.rut) && (
+                  <p className="text-xs text-destructive mt-1">RUT inválido</p>
+                )}
               </div>
               <div>
                 <Label>Rubro *</Label>
@@ -468,7 +479,18 @@ export default function LeyKarinProtocolo() {
                   onChange={(e) =>
                     update("representanteLegalRut", e.target.value)
                   }
+                  onBlur={(e) => {
+                    const v = e.target.value;
+                    if (v && isValidRut(v))
+                      update("representanteLegalRut", formatRut(v));
+                  }}
                 />
+                {form.representanteLegalRut &&
+                  !isValidRut(form.representanteLegalRut) && (
+                    <p className="text-xs text-destructive mt-1">
+                      RUT inválido
+                    </p>
+                  )}
               </div>
               <div>
                 <Label>Fecha de vigencia *</Label>
@@ -522,6 +544,14 @@ export default function LeyKarinProtocolo() {
                 >
                   <Download className="w-3.5 h-3.5 mr-1" /> Descargar
                 </Button>
+                <ExportPdfButton
+                  tipo="karin-protocolo"
+                  contenido={{
+                    title: `Protocolo Ley Karin — ${form.razonSocial || "Empresa"}`,
+                    body: output.protocolo,
+                    author: form.representanteLegalNombre || undefined,
+                  }}
+                />
               </div>
             </CardHeader>
             <CardContent>
@@ -558,6 +588,14 @@ export default function LeyKarinProtocolo() {
                 >
                   <Download className="w-3.5 h-3.5 mr-1" /> Descargar
                 </Button>
+                <ExportPdfButton
+                  tipo="karin-protocolo"
+                  contenido={{
+                    title: `Checklist Ley Karin — ${form.razonSocial || "Empresa"}`,
+                    body: output.checklist,
+                    author: form.representanteLegalNombre || undefined,
+                  }}
+                />
               </div>
             </CardHeader>
             <CardContent>

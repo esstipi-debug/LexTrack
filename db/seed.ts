@@ -12,7 +12,19 @@ import {
   honorarios,
   diarioOficialNormas,
   actividadReciente,
+  users,
 } from "./schema";
+import { eq } from "drizzle-orm";
+
+async function getOrCreateSeedUser(db: ReturnType<typeof getDb>): Promise<number> {
+  const existing = await db.select().from(users).where(eq(users.unionId, "seed-user")).limit(1);
+  if (existing.length > 0) return existing[0].id;
+  const [u] = await db
+    .insert(users)
+    .values({ unionId: "seed-user", name: "Seed User", email: "seed@lextrack.local", role: "admin" })
+    .$returningId();
+  return u.id;
+}
 
 // ====================================================================
 // SEED MASIVO: LEXTRACK RAG - EL DIOS DEL CODIGO DEL TRABAJO
@@ -948,6 +960,8 @@ const checklistData: {
 async function seed() {
   const db = getDb();
   console.log("🚀 Iniciando seed masivo de LexTrack RAG...");
+  const seedUserId = await getOrCreateSeedUser(db);
+  console.log(`👤 Seed user id: ${seedUserId}`);
 
   // 1. Insertar articulos del Codigo del Trabajo
   console.log(`📚 Insertando ${articulosCT.length} articulos del Codigo del Trabajo...`);
@@ -984,6 +998,7 @@ async function seed() {
   console.log("📁 Insertando causas de ejemplo...");
   await db.insert(causas).values([
     {
+      userId: seedUserId,
       rit: "C-2024-001",
       caratula: "Gonzalez Perez vs Empresa Constructora Ltda.",
       tribunal: "1° Juzgado de Letras del Trabajo de Santiago",
@@ -995,6 +1010,7 @@ async function seed() {
       region: "Region Metropolitana",
     },
     {
+      userId: seedUserId,
       rit: "C-2024-002",
       caratula: "Rodriguez Martinez vs Supermercados del Sur S.A.",
       tribunal: "2° Juzgado de Letras del Trabajo de Concepcion",
@@ -1006,6 +1022,7 @@ async function seed() {
       region: "Biobio",
     },
     {
+      userId: seedUserId,
       rit: "C-2024-003",
       caratula: "Silva Fuentes vs Transportes Nacional S.A.",
       tribunal: "3° Juzgado de Letras del Trabajo de Valparaiso",
@@ -1022,37 +1039,37 @@ async function seed() {
   // 5. Insertar tareas de ejemplo
   console.log("📋 Insertando tareas...");
   await db.insert(tareas).values([
-    { titulo: "Revisar escrito de demanda causa C-2024-001", descripcion: "Revisar y corregir escrito de demanda de tutela", estado: "pendiente", prioridad: "alta", tipo: "preparar_escrito", fechaVencimiento: "2024-12-20" },
-    { titulo: "Preparar audiencia preparatoria C-2024-003", descripcion: "Organizar pruebas y testigos para audiencia", estado: "en_progreso", prioridad: "alta", tipo: "agendar_audiencia", fechaVencimiento: "2024-12-18" },
-    { titulo: "Calcular liquidacion final Rodriguez Martinez", descripcion: "Calcular indemnizaciones y proporcionales", estado: "pendiente", prioridad: "media", tipo: "checklist_despido", fechaVencimiento: "2024-12-22" },
-    { titulo: "Revisar Diario Oficial - normas laborales", descripcion: "Verificar nuevas normas publicadas que afecten causas activas", estado: "pendiente", prioridad: "baja", tipo: "revisar_diario_oficial", fechaVencimiento: "2024-12-25" },
+    { userId: seedUserId, titulo: "Revisar escrito de demanda causa C-2024-001", descripcion: "Revisar y corregir escrito de demanda de tutela", estado: "pendiente", prioridad: "alta", tipo: "preparar_escrito", fechaVencimiento: "2024-12-20" },
+    { userId: seedUserId, titulo: "Preparar audiencia preparatoria C-2024-003", descripcion: "Organizar pruebas y testigos para audiencia", estado: "en_progreso", prioridad: "alta", tipo: "agendar_audiencia", fechaVencimiento: "2024-12-18" },
+    { userId: seedUserId, titulo: "Calcular liquidacion final Rodriguez Martinez", descripcion: "Calcular indemnizaciones y proporcionales", estado: "pendiente", prioridad: "media", tipo: "checklist_despido", fechaVencimiento: "2024-12-22" },
+    { userId: seedUserId, titulo: "Revisar Diario Oficial - normas laborales", descripcion: "Verificar nuevas normas publicadas que afecten causas activas", estado: "pendiente", prioridad: "baja", tipo: "revisar_diario_oficial", fechaVencimiento: "2024-12-25" },
   ]);
   console.log("✅ Tareas insertadas");
 
   // 6. Insertar alertas
   console.log("🔔 Insertando alertas...");
   await db.insert(alertas).values([
-    { titulo: "Plazo proximo: Contestacion de demanda C-2024-001", descripcion: "El plazo para contestar la demanda vence en 5 dias habiles", prioridad: "critica", estado: "pendiente", tipo: "prazo_proximo", fechaVencimiento: "2024-12-15" },
-    { titulo: "Nueva norma laboral publicada en Diario Oficial", descripcion: "Se publico reforma al Art. 184 bis CT sobre teletrabajo", prioridad: "media", estado: "pendiente", tipo: "cambio_normativo" },
-    { titulo: "Audiencia programada: C-2024-003", descripcion: "Audiencia preparatoria programada para el 20 de diciembre", prioridad: "alta", estado: "pendiente", tipo: "audiencia_programada", fechaEvento: "2024-12-20" },
+    { userId: seedUserId, titulo: "Plazo proximo: Contestacion de demanda C-2024-001", descripcion: "El plazo para contestar la demanda vence en 5 dias habiles", prioridad: "critica", estado: "pendiente", tipo: "prazo_proximo", fechaVencimiento: "2024-12-15" },
+    { userId: seedUserId, titulo: "Nueva norma laboral publicada en Diario Oficial", descripcion: "Se publico reforma al Art. 184 bis CT sobre teletrabajo", prioridad: "media", estado: "pendiente", tipo: "cambio_normativo" },
+    { userId: seedUserId, titulo: "Audiencia programada: C-2024-003", descripcion: "Audiencia preparatoria programada para el 20 de diciembre", prioridad: "alta", estado: "pendiente", tipo: "audiencia_programada", fechaEvento: "2024-12-20" },
   ]);
   console.log("✅ Alertas insertadas");
 
   // 7. Insertar honorarios
   console.log("💰 Insertando honorarios...");
   await db.insert(honorarios).values([
-    { cliente: "Gonzalez Perez", concepto: "Honorarios primera instancia - Despido injustificado", tipo: "honorario", monto: 2500000, montoPagado: 1000000, estado: "pagado_parcial", fechaVencimiento: "2024-12-31" },
-    { cliente: "Rodriguez Martinez", concepto: "Honorarios causa despido - Sentencia favorable", tipo: "honorario", monto: 3200000, montoPagado: 0, estado: "pendiente", fechaVencimiento: "2024-12-15" },
-    { cliente: "Silva Fuentes", concepto: "Consulta inicial - Despido indirecto", tipo: "consulta", monto: 150000, montoPagado: 150000, estado: "pagado", fechaVencimiento: "2024-11-30" },
+    { userId: seedUserId, cliente: "Gonzalez Perez", concepto: "Honorarios primera instancia - Despido injustificado", tipo: "honorario", monto: 2500000, montoPagado: 1000000, estado: "pagado_parcial", fechaVencimiento: "2024-12-31" },
+    { userId: seedUserId, cliente: "Rodriguez Martinez", concepto: "Honorarios causa despido - Sentencia favorable", tipo: "honorario", monto: 3200000, montoPagado: 0, estado: "pendiente", fechaVencimiento: "2024-12-15" },
+    { userId: seedUserId, cliente: "Silva Fuentes", concepto: "Consulta inicial - Despido indirecto", tipo: "consulta", monto: 150000, montoPagado: 150000, estado: "pagado", fechaVencimiento: "2024-11-30" },
   ]);
   console.log("✅ Honorarios insertados");
 
   // 8. Insertar actividad reciente
   console.log("📊 Insertando actividad reciente...");
   await db.insert(actividadReciente).values([
-    { tipo: "causa_creada", titulo: "Nueva causa: C-2024-003", descripcion: "Se creo la causa Silva Fuentes vs Transportes Nacional S.A." },
-    { tipo: "tarea_completada", titulo: "Tarea completada: Revision de demanda", descripcion: "Se reviso y presento escrito de demanda C-2024-001" },
-    { tipo: "alerta_nueva", titulo: "Alerta: Plazo proximo", descripcion: "Contestacion de demanda C-2024-001 vence en 5 dias" },
+    { userId: seedUserId, tipo: "causa_creada", titulo: "Nueva causa: C-2024-003", descripcion: "Se creo la causa Silva Fuentes vs Transportes Nacional S.A." },
+    { userId: seedUserId, tipo: "tarea_completada", titulo: "Tarea completada: Revision de demanda", descripcion: "Se reviso y presento escrito de demanda C-2024-001" },
+    { userId: seedUserId, tipo: "alerta_nueva", titulo: "Alerta: Plazo proximo", descripcion: "Contestacion de demanda C-2024-001 vence en 5 dias" },
   ]);
   console.log("✅ Actividad reciente insertada");
 

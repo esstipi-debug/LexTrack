@@ -8,136 +8,214 @@ import {
   leykarinDenuncias,
   actividadReciente,
 } from "@db/schema";
-import { sql } from "drizzle-orm";
+import { eq, sql, count, sum, and, gte, lte, lt } from "drizzle-orm";
 
 export const statsRouter = createRouter({
-  dashboard: authedQuery.query(async () => {
+  dashboard: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const userId = ctx.user.id;
     const hoy = new Date();
     const hoyStr = hoy.toISOString().split("T")[0];
 
     // ── Mes actual y anterior ───────────────────────────────────────
-    const inicioMesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
-      .toISOString()
-      .split("T")[0];
-    const inicioMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
-      .toISOString()
-      .split("T")[0];
-    const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
-      .toISOString()
-      .split("T")[0];
+    const inicioMesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const inicioMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+    const en7dias = new Date(hoy.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const en7dias = new Date(hoy.getTime() + 7 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
+    // ── Causas: SQL aggregations ─────────────────────────────────────
+    const [causasTotalRow] = await db
+      .select({ total: count() })
+      .from(causas)
+      .where(eq(causas.userId, userId));
 
-    // ── Causas ──────────────────────────────────────────────────────
-    const todasCausas = await db.select().from(causas);
+    const causasPorEstado = await db
+      .select({ estado: causas.estado, total: count() })
+      .from(causas)
+      .where(eq(causas.userId, userId))
+      .groupBy(causas.estado);
+
+    const causasPorMateria = await db
+      .select({ materia: causas.materia, total: count() })
+      .from(causas)
+      .where(eq(causas.userId, userId))
+      .groupBy(causas.materia);
+
     const estadosCausas = ["tramitacion", "notificacion", "prueba", "sentencia", "ejecucion", "concluida", "archivada"] as const;
     const porEstadoCausa: Record<string, number> = {};
     for (const estado of estadosCausas) porEstadoCausa[estado] = 0;
-    const materiasCausas: Record<string, number> = {};
     let causasActivas = 0;
-
-    for (const c of todasCausas) {
-      porEstadoCausa[c.estado] = (porEstadoCausa[c.estado] ?? 0) + 1;
-      materiasCausas[c.materia] = (materiasCausas[c.materia] ?? 0) + 1;
-      if (c.estado !== "concluida" && c.estado !== "archivada") causasActivas += 1;
+    for (const row of causasPorEstado) {
+      porEstadoCausa[row.estado] = row.total;
+      if (row.estado !== "concluida" && row.estado !== "archivada") causasActivas += row.total;
     }
 
-    const causasEsteMes = todasCausas.filter(
-      (c) => c.createdAt >= new Date(inicioMesActual)
-    ).length;
-    const causasMesAnterior = todasCausas.filter(
-      (c) =>
-        c.createdAt >= new Date(inicioMesAnterior) &&
-        c.createdAt <= new Date(finMesAnterior)
-    ).length;
-
-    // ── Tareas ──────────────────────────────────────────────────────
-    const todasTareas = await db.select().from(tareas);
-    let tareasPendientes = 0;
-    let tareasVencidas = 0;
-    let tareasCompletadasEsteMes = 0;
-    let tareasCompletadasMesAnterior = 0;
-    let tareasProximas7dias = 0;
-
-    for (const t of todasTareas) {
-      if (t.estado === "pendiente") tareasPendientes += 1;
-      if (
-        (t.estado === "pendiente" || t.estado === "en_progreso") &&
-        t.fechaVencimiento &&
-        t.fechaVencimiento < new Date(hoyStr)
-      ) {
-        tareasVencidas += 1;
-      }
-      if (t.estado === "completada" && t.fechaCompletada) {
-        if (t.fechaCompletada >= new Date(inicioMesActual)) {
-          tareasCompletadasEsteMes += 1;
-        } else if (
-          t.fechaCompletada >= new Date(inicioMesAnterior) &&
-          t.fechaCompletada <= new Date(finMesAnterior)
-        ) {
-          tareasCompletadasMesAnterior += 1;
-        }
-      }
-      if (
-        (t.estado === "pendiente" || t.estado === "en_progreso") &&
-        t.fechaVencimiento &&
-        t.fechaVencimiento >= new Date(hoyStr) &&
-        t.fechaVencimiento <= new Date(en7dias)
-      ) {
-        tareasProximas7dias += 1;
-      }
+    const materiasCausas: Record<string, number> = {};
+    for (const row of causasPorMateria) {
+      materiasCausas[row.materia] = row.total;
     }
 
-    // ── Alertas ──────────────────────────────────────────────────────
-    const todasAlertas = await db.select().from(alertas);
+    const [causasEsteMesRow] = await db
+      .select({ total: count() })
+      .from(causas)
+      .where(and(eq(causas.userId, userId), gte(causas.createdAt, inicioMesActual)));
+
+    const [causasMesAnteriorRow] = await db
+      .select({ total: count() })
+      .from(causas)
+      .where(
+        and(
+          eq(causas.userId, userId),
+          gte(causas.createdAt, inicioMesAnterior),
+          lte(causas.createdAt, finMesAnterior),
+        )
+      );
+
+    const causasEsteMes = causasEsteMesRow?.total ?? 0;
+    const causasMesAnterior = causasMesAnteriorRow?.total ?? 0;
+
+    // ── Tareas: SQL aggregations ─────────────────────────────────────
+    const [tareasTotalRow] = await db
+      .select({ total: count() })
+      .from(tareas)
+      .where(eq(tareas.userId, userId));
+
+    const [tareasPendientesRow] = await db
+      .select({ total: count() })
+      .from(tareas)
+      .where(and(eq(tareas.userId, userId), eq(tareas.estado, "pendiente")));
+
+    const [tareasVencidasRow] = await db
+      .select({ total: count() })
+      .from(tareas)
+      .where(
+        and(
+          eq(tareas.userId, userId),
+          sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
+          sql`${tareas.fechaVencimiento} IS NOT NULL`,
+          lt(tareas.fechaVencimiento, new Date(hoyStr)),
+        )
+      );
+
+    const [tareasCompletadasEsteMesRow] = await db
+      .select({ total: count() })
+      .from(tareas)
+      .where(
+        and(
+          eq(tareas.userId, userId),
+          eq(tareas.estado, "completada"),
+          sql`${tareas.fechaCompletada} IS NOT NULL`,
+          gte(tareas.fechaCompletada, inicioMesActual),
+        )
+      );
+
+    const [tareasCompletadasMesAnteriorRow] = await db
+      .select({ total: count() })
+      .from(tareas)
+      .where(
+        and(
+          eq(tareas.userId, userId),
+          eq(tareas.estado, "completada"),
+          sql`${tareas.fechaCompletada} IS NOT NULL`,
+          gte(tareas.fechaCompletada, inicioMesAnterior),
+          lte(tareas.fechaCompletada, finMesAnterior),
+        )
+      );
+
+    const [tareasProximas7diasRow] = await db
+      .select({ total: count() })
+      .from(tareas)
+      .where(
+        and(
+          eq(tareas.userId, userId),
+          sql`${tareas.estado} IN ('pendiente', 'en_progreso')`,
+          sql`${tareas.fechaVencimiento} IS NOT NULL`,
+          gte(tareas.fechaVencimiento, new Date(hoyStr)),
+          lte(tareas.fechaVencimiento, en7dias),
+        )
+      );
+
+    const tareasPendientes = tareasPendientesRow?.total ?? 0;
+    const tareasVencidas = tareasVencidasRow?.total ?? 0;
+    const tareasCompletadasEsteMes = tareasCompletadasEsteMesRow?.total ?? 0;
+    const tareasCompletadasMesAnterior = tareasCompletadasMesAnteriorRow?.total ?? 0;
+    const tareasProximas7dias = tareasProximas7diasRow?.total ?? 0;
+
+    // ── Alertas: SQL aggregations ────────────────────────────────────
+    const [alertasPendientesRow] = await db
+      .select({ total: count() })
+      .from(alertas)
+      .where(and(eq(alertas.userId, userId), eq(alertas.estado, "pendiente")));
+
+    const alertasPorTipo = await db
+      .select({ tipo: alertas.tipo, total: count() })
+      .from(alertas)
+      .where(and(eq(alertas.userId, userId), eq(alertas.estado, "pendiente")))
+      .groupBy(alertas.tipo);
+
+    const alertasPorPrioridad = await db
+      .select({ prioridad: alertas.prioridad, total: count() })
+      .from(alertas)
+      .where(and(eq(alertas.userId, userId), eq(alertas.estado, "pendiente")))
+      .groupBy(alertas.prioridad);
+
+    const alertasPendientes = alertasPendientesRow?.total ?? 0;
     const porTipoAlerta: Record<string, number> = {};
+    for (const row of alertasPorTipo) porTipoAlerta[row.tipo] = row.total;
     const porPrioridadAlerta: Record<string, number> = {};
-    let alertasPendientes = 0;
+    for (const row of alertasPorPrioridad) porPrioridadAlerta[row.prioridad] = row.total;
 
-    for (const a of todasAlertas) {
-      if (a.estado === "pendiente") {
-        alertasPendientes += 1;
-        porTipoAlerta[a.tipo] = (porTipoAlerta[a.tipo] ?? 0) + 1;
-        porPrioridadAlerta[a.prioridad] = (porPrioridadAlerta[a.prioridad] ?? 0) + 1;
-      }
-    }
+    // ── Honorarios: SQL aggregations ─────────────────────────────────
+    const [honorariosSumsRow] = await db
+      .select({
+        totalFacturado: sum(honorarios.monto),
+        totalPagado: sum(honorarios.montoPagado),
+      })
+      .from(honorarios)
+      .where(eq(honorarios.userId, userId));
 
-    // ── Honorarios ───────────────────────────────────────────────────
-    const todosHonorarios = await db.select().from(honorarios);
-    let totalFacturado = 0;
-    let totalPagado = 0;
-    let morosidad = 0;
+    const morosidadRows = await db
+      .select({ monto: honorarios.monto, montoPagado: honorarios.montoPagado })
+      .from(honorarios)
+      .where(
+        and(
+          eq(honorarios.userId, userId),
+          sql`${honorarios.estado} IN ('vencido', 'moroso', 'cobranza')`,
+        )
+      );
 
-    for (const h of todosHonorarios) {
-      totalFacturado += h.monto;
-      totalPagado += h.montoPagado ?? 0;
-      if (h.estado === "vencido" || h.estado === "moroso" || h.estado === "cobranza") {
-        morosidad += h.monto - (h.montoPagado ?? 0);
-      }
-    }
-
+    const totalFacturado = Number(honorariosSumsRow?.totalFacturado ?? 0);
+    const totalPagado = Number(honorariosSumsRow?.totalPagado ?? 0);
     const porCobrar = totalFacturado - totalPagado;
+    let morosidad = 0;
+    for (const h of morosidadRows) {
+      morosidad += h.monto - (h.montoPagado ?? 0);
+    }
 
-    // ── Ley Karin ────────────────────────────────────────────────────
-    const todasDenuncias = await db.select().from(leykarinDenuncias);
-    let leyKarinActivas = 0;
+    // ── Ley Karin ─────────────────────────────────────────────────────
+    // Urgentes requires per-row date arithmetic — load only active denuncias
+    const [leyKarinTotalRow] = await db
+      .select({ total: count() })
+      .from(leykarinDenuncias)
+      .where(eq(leykarinDenuncias.userId, userId));
+
+    const activasDenuncias = await db
+      .select({ fechaPlazo: leykarinDenuncias.fechaPlazo })
+      .from(leykarinDenuncias)
+      .where(
+        and(
+          eq(leykarinDenuncias.userId, userId),
+          sql`${leykarinDenuncias.estado} NOT IN ('archivada', 'concluida')`,
+        )
+      );
+
     let leyKarinUrgentes = 0;
-
-    for (const d of todasDenuncias) {
-      const activa =
-        d.estado !== "archivada" && d.estado !== "concluida";
-      if (activa) {
-        leyKarinActivas += 1;
-        if (d.fechaPlazo) {
-          const diasRestantes = Math.ceil(
-            (new Date(d.fechaPlazo).getTime() - hoy.getTime()) /
-              (1000 * 60 * 60 * 24)
-          );
-          if (diasRestantes < 5) leyKarinUrgentes += 1;
-        }
+    for (const d of activasDenuncias) {
+      if (d.fechaPlazo) {
+        const diasRestantes = Math.ceil(
+          (new Date(d.fechaPlazo).getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (diasRestantes < 5) leyKarinUrgentes += 1;
       }
     }
 
@@ -145,18 +223,19 @@ export const statsRouter = createRouter({
     const ultimaActividad = await db
       .select()
       .from(actividadReciente)
+      .where(eq(actividadReciente.userId, userId))
       .orderBy(sql`${actividadReciente.createdAt} DESC`)
       .limit(5);
 
     return {
       causas: {
-        total: todasCausas.length,
+        total: causasTotalRow?.total ?? 0,
         activas: causasActivas,
         porEstado: porEstadoCausa,
         porMateria: materiasCausas,
       },
       tareas: {
-        total: todasTareas.length,
+        total: tareasTotalRow?.total ?? 0,
         pendientes: tareasPendientes,
         vencidas: tareasVencidas,
         completadasEsteMes: tareasCompletadasEsteMes,
@@ -174,8 +253,8 @@ export const statsRouter = createRouter({
         morosidad,
       },
       leyKarin: {
-        total: todasDenuncias.length,
-        activas: leyKarinActivas,
+        total: leyKarinTotalRow?.total ?? 0,
+        activas: activasDenuncias.length,
         urgentes: leyKarinUrgentes,
       },
       tendencias: {

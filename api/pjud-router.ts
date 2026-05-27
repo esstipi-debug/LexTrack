@@ -6,7 +6,7 @@ import {
   consultarCausa,
   buscarPorRut,
   type PjudCausaResult,
-} from "./lib/pjud/client";
+} from "./lib/pjud";
 import { sincronizarCausa, sincronizarTodas } from "./lib/pjud/sync";
 
 /** Map a PJUD estado string to our local DB enum */
@@ -43,13 +43,13 @@ export const pjudRouter = createRouter({
   /** Sync a specific causa by ID, return changes */
   sincronizar: authedQuery
     .input(z.object({ causaId: z.number() }))
-    .mutation(async ({ input }) => {
-      return sincronizarCausa(input.causaId);
+    .mutation(async ({ input, ctx }) => {
+      return sincronizarCausa(input.causaId, ctx.user.id);
     }),
 
   /** Sync all causas with estaMonitoreando = true */
-  sincronizarTodas: authedQuery.mutation(async () => {
-    return sincronizarTodas();
+  sincronizarTodas: authedQuery.mutation(async ({ ctx }) => {
+    return sincronizarTodas(ctx.user.id);
   }),
 
   /** Search PJUD by RUT, return matches */
@@ -73,13 +73,14 @@ export const pjudRouter = createRouter({
         litigantes: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const estado = input.estado
         ? mapEstadoToLocal(input.estado)
         : "tramitacion";
 
       await db.insert(causas).values({
+        userId: ctx.user.id,
         rit: input.rit,
         ruc: input.ruc,
         caratula: input.caratula,

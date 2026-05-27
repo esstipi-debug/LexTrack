@@ -2,7 +2,12 @@ import { z } from "zod";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { alertas } from "@db/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, lt } from "drizzle-orm";
+
+const paginationInput = z.object({
+  limit: z.number().int().positive().max(100).optional(),
+  cursor: z.number().int().positive().nullish(),
+});
 
 const PRIORIDAD = ["baja", "media", "alta", "critica"] as const;
 const TIPO = [
@@ -20,25 +25,40 @@ const TIPO = [
 const ESTADO = ["pendiente", "leida", "archivada"] as const;
 
 export const alertaRouter = createRouter({
-  listar: authedQuery.query(async () => {
-    const db = getDb();
-    return db
-      .select()
-      .from(alertas)
-      .orderBy(
-        sql`FIELD(${alertas.prioridad}, 'critica', 'alta', 'media', 'baja')`,
-        desc(alertas.createdAt)
-      );
-  }),
+  listar: authedQuery
+    .input(paginationInput.optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const limit = Math.min(input?.limit ?? 20, 100);
+      const cursor = input?.cursor ?? null;
+      // TODO: existing endpoint sorted by prioridad CASE then createdAt desc.
+      // For cursor pagination we paginate by id desc only — primary prioridad
+      // sort is dropped here. Re-add compound cursor if UX needs it.
+      const rows = await db
+        .select()
+        .from(alertas)
+        .where(
+          and(
+            eq(alertas.userId, ctx.user.id),
+            cursor ? lt(alertas.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(alertas.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
+    }),
 
   obtener: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const rows = await db
         .select()
         .from(alertas)
-        .where(eq(alertas.id, input.id))
+        .where(and(eq(alertas.id, input.id), eq(alertas.userId, ctx.user.id)))
         .limit(1);
       return rows[0] ?? null;
     }),
@@ -56,9 +76,10 @@ export const alertaRouter = createRouter({
         fechaVencimiento: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const values: Record<string, unknown> = {
+        userId: ctx.user.id,
         titulo: input.titulo,
         descripcion: input.descripcion ?? null,
         prioridad: input.prioridad,
@@ -80,36 +101,42 @@ export const alertaRouter = createRouter({
 
   marcarLeida: authedQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       await db
         .update(alertas)
         .set({ estado: "leida", leidaAt: new Date() })
-        .where(and(eq(alertas.id, input.id), eq(alertas.estado, "pendiente")));
+        .where(
+          and(
+            eq(alertas.id, input.id),
+            eq(alertas.userId, ctx.user.id),
+            eq(alertas.estado, "pendiente")
+          )
+        );
       return { ok: true };
     }),
 
-  marcarTodasLeidas: authedQuery.mutation(async () => {
+  marcarTodasLeidas: authedQuery.mutation(async ({ ctx }) => {
     const db = getDb();
     await db
       .update(alertas)
       .set({ estado: "leida", leidaAt: new Date() })
-      .where(eq(alertas.estado, "pendiente"));
+      .where(and(eq(alertas.userId, ctx.user.id), eq(alertas.estado, "pendiente")));
     return { ok: true };
   }),
 
   archivar: authedQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       await db
         .update(alertas)
         .set({ estado: "archivada" })
-        .where(eq(alertas.id, input.id));
+        .where(and(eq(alertas.id, input.id), eq(alertas.userId, ctx.user.id)));
       return { ok: true };
     }),
 
-  dashboard: authedQuery.query(async () => {
+  dashboard: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
 
     const hoyInicio = new Date();
@@ -117,17 +144,20 @@ export const alertaRouter = createRouter({
     const hoyFin = new Date();
     hoyFin.setHours(23, 59, 59, 999);
 
+    const userScope = eq(alertas.userId, ctx.user.id);
+
     const [totalPendientes, totalLeidasHoy, porTipo, porPrioridad, totalArchivadas] =
       await Promise.all([
         db
           .select({ count: sql<number>`COUNT(*)` })
           .from(alertas)
-          .where(eq(alertas.estado, "pendiente")),
+          .where(and(userScope, eq(alertas.estado, "pendiente"))),
         db
           .select({ count: sql<number>`COUNT(*)` })
           .from(alertas)
           .where(
             and(
+              userScope,
               eq(alertas.estado, "leida"),
               sql`${alertas.leidaAt} >= ${hoyInicio} AND ${alertas.leidaAt} <= ${hoyFin}`
             )
@@ -135,15 +165,17 @@ export const alertaRouter = createRouter({
         db
           .select({ tipo: alertas.tipo, count: sql<number>`COUNT(*)` })
           .from(alertas)
+          .where(userScope)
           .groupBy(alertas.tipo),
         db
           .select({ prioridad: alertas.prioridad, count: sql<number>`COUNT(*)` })
           .from(alertas)
+          .where(userScope)
           .groupBy(alertas.prioridad),
         db
           .select({ count: sql<number>`COUNT(*)` })
           .from(alertas)
-          .where(eq(alertas.estado, "archivada")),
+          .where(and(userScope, eq(alertas.estado, "archivada"))),
       ]);
 
     return {
@@ -159,16 +191,33 @@ export const alertaRouter = createRouter({
   }),
 
   porCausa: authedQuery
-    .input(z.object({ causaId: z.number() }))
-    .query(async ({ input }) => {
+    .input(
+      z.object({
+        causaId: z.number(),
+        limit: z.number().int().positive().max(100).optional(),
+        cursor: z.number().int().positive().nullish(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
       const db = getDb();
-      return db
+      const limit = Math.min(input.limit ?? 20, 100);
+      const cursor = input.cursor ?? null;
+      // TODO: primary prioridad CASE sort dropped for cursor pagination.
+      const rows = await db
         .select()
         .from(alertas)
-        .where(eq(alertas.causaId, input.causaId))
-        .orderBy(
-          sql`FIELD(${alertas.prioridad}, 'critica', 'alta', 'media', 'baja')`,
-          desc(alertas.createdAt)
-        );
+        .where(
+          and(
+            eq(alertas.causaId, input.causaId),
+            eq(alertas.userId, ctx.user.id),
+            cursor ? lt(alertas.id, cursor) : undefined
+          )
+        )
+        .orderBy(desc(alertas.id))
+        .limit(limit + 1);
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+      return { items, nextCursor };
     }),
 });

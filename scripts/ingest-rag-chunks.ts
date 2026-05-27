@@ -81,7 +81,7 @@ async function main() {
     process.exit(1);
   }
 
-  const docs = await mysql.select().from(documentosLegales).where(sql`${documentosLegales.estaActiva} = 1`);
+  const docs = await mysql.select().from(documentosLegales).where(sql`${documentosLegales.estaActiva} = true`);
   console.log(`Documentos legales: ${docs.length}`);
 
   for (let i = 0; i < docs.length; i += BATCH) {
@@ -107,7 +107,7 @@ async function main() {
     console.log(`  ingestidos documentos ${Math.min(i + BATCH, docs.length)}/${docs.length}`);
   }
 
-  const juris = await mysql.select().from(jurisprudencias).where(sql`${jurisprudencias.estaActiva} = 1`);
+  const juris = await mysql.select().from(jurisprudencias).where(sql`${jurisprudencias.estaActiva} = true`);
   console.log(`Jurisprudencia: ${juris.length}`);
 
   for (let i = 0; i < juris.length; i += BATCH) {

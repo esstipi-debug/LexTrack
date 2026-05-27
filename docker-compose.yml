@@ -1,7 +1,23 @@
 # Postgres 16 + pgvector — stack objetivo para RAG híbrido (BM25 + embeddings).
 # Uso: docker compose up -d
 # DATABASE_URL (Postgres): postgresql://lextrack:${POSTGRES_PASSWORD}@localhost:5432/lextrack
+# ⚠️  Change POSTGRES_PASSWORD before deploying to staging or production!
 services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://lextrack:lextrack@postgres:5432/lextrack
+      - PORT=3000
+    env_file:
+      - .env.local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:pg16
     container_name: lextrack-postgres
@@ -22,5 +38,29 @@ services:
       retries: 5
       start_period: 10s
 
+# Run with backup: docker compose --profile backup up -d
+# Backups stored in ./backups/, rotated after 7 days
+  backup:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PGPASSWORD=${POSTGRES_PASSWORD:-lextrack}
+    volumes:
+      - ./backups:/backups
+    entrypoint: >
+      sh -c "while true; do
+        pg_dump -h postgres -U $${POSTGRES_USER:-lextrack} $${POSTGRES_DB:-lextrack}
+        | gzip > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql.gz;
+        echo \"Backup completed at $$(date)\";
+        find /backups -name '*.sql.gz' -mtime +7 -delete;
+        sleep 86400;
+      done"
+    restart: unless-stopped
+    profiles:
+      - backup
+
 volumes:
   lextrack_pgdata:
+  # backups/ is a bind mount (local dir), not a named volume

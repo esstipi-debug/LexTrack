@@ -175,7 +175,19 @@ function SummaryCard({
 export default function Alertas() {
   const [filtro, setFiltro] = useState<Filtro>("todas");
 
-  const { data: alertasData, isLoading } = trpc.alerta.listar.useQuery();
+  const {
+    data: alertasInfinite,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.alerta.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
   const { data: dashboard } = trpc.alerta.dashboard.useQuery();
   const utils = trpc.useUtils();
 
@@ -226,7 +238,7 @@ export default function Alertas() {
     });
   }
 
-  const alertas = alertasData ?? [];
+  const alertas = alertasInfinite?.pages.flatMap((p) => p.items) ?? [];
 
   const filtradas = alertas.filter((a) => {
     if (filtro === "todas") return true;
@@ -504,6 +516,17 @@ export default function Alertas() {
               </Card>
             );
           })}
+          {hasNextPage && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
