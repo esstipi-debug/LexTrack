@@ -6,6 +6,9 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { organizations, orgMembers, invites, users } from "@db/schema";
 import { createLogger } from "./lib/logger";
+import { sendEmail } from "./lib/email/send";
+import { inviteMiembro } from "./lib/email/templates";
+import { auditFromCtx } from "./lib/audit";
 
 const log = createLogger("org-router");
 
@@ -115,6 +118,13 @@ export const orgRouter = createRouter({
       });
 
       log.info({ orgId: org.id, userId: ctx.user.id }, "Organización creada");
+      // audit
+      await auditFromCtx(ctx, {
+        action: "org.create",
+        tableName: "organizations",
+        recordId: org.id,
+        after: { id: org.id, nombre: org.nombre, slug: org.slug },
+      });
       return org;
     }),
 
@@ -153,6 +163,45 @@ export const orgRouter = createRouter({
         { inviteId: invite.id, orgId: member.orgId, email: input.email },
         "Invitación creada"
       );
+
+      // Send invitation email — failures must NOT propagate
+      try {
+        const orgRows = await db
+          .select({ nombre: organizations.nombre })
+          .from(organizations)
+          .where(eq(organizations.id, member.orgId))
+          .limit(1);
+
+        const invitadorNombre = ctx.user.name ?? ctx.user.email ?? "Un colega";
+        const invitadorEmail = ctx.user.email ?? "";
+        const orgNombre = orgRows[0]?.nombre ?? "tu organización";
+
+        await sendEmail({
+          to: input.email,
+          template: inviteMiembro({
+            invitadoEmail: input.email,
+            invitadorNombre,
+            invitadorEmail,
+            orgNombre,
+            role: input.role,
+            inviteUrl,
+            expiresAt: invite.expiresAt,
+          }),
+        });
+      } catch (err) {
+        log.error(
+          { err, inviteId: invite.id, email: input.email },
+          "No se pudo enviar email de invitación — invite creado igual"
+        );
+      }
+
+      // audit
+      await auditFromCtx(ctx, {
+        action: "org.invite",
+        tableName: "invites",
+        recordId: invite.id,
+        after: { email: input.email, role: input.role, orgId: member.orgId },
+      });
 
       return { token: invite.token, inviteUrl };
     }),
@@ -226,6 +275,14 @@ export const orgRouter = createRouter({
         { inviteId: invite.id, userId: ctx.user.id, orgId: invite.orgId },
         "Invitación aceptada"
       );
+
+      // audit
+      await auditFromCtx(ctx, {
+        action: "org.acceptInvite",
+        tableName: "org_members",
+        recordId: invite.id,
+        after: { orgId: invite.orgId, userId: ctx.user.id, role: invite.role },
+      });
 
       return {
         orgId: invite.orgId,
@@ -313,6 +370,14 @@ export const orgRouter = createRouter({
         { orgId: callerMember.orgId, removedUserId: input.userId },
         "Miembro removido"
       );
+
+      // audit
+      await auditFromCtx(ctx, {
+        action: "org.removeMember",
+        tableName: "org_members",
+        recordId: target.id,
+        before: { orgId: callerMember.orgId, userId: input.userId, role: target.role },
+      });
 
       return { success: true };
     }),
