@@ -1,6 +1,7 @@
 import { authRouter } from "./auth-router";
 import { createRouter, publicQuery } from "./middleware";
 import { ragRouter } from "./rag-router";
+import { billingRouter } from "./billing-router";
 import { causaRouter } from "./causa-router";
 import { alertaRouter } from "./alerta-router";
 import { tareaRouter } from "./tarea-router";
@@ -34,6 +35,7 @@ export const appRouter = createRouter({
   pjud: pjudRouter,
   jobs: jobsRouter,
   pdf: pdfRouter,
+  billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;

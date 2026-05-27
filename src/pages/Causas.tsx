@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
+import { trackEvent } from "@/lib/analytics";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
@@ -52,6 +53,7 @@ export default function Causas() {
 
   const crear = trpc.causa.crear.useMutation({
     onSuccess: () => {
+      trackEvent('causa_created', { materia });
       utils.causa.listar.invalidate();
       setOpen(false);
       resetForm();

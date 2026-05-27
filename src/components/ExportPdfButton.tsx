@@ -1,4 +1,5 @@
 import { trpc } from "@/providers/trpc";
+import { trackEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { FileDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,6 +53,7 @@ export function ExportPdfButton({
 }: ExportPdfButtonProps) {
   const exportar = trpc.pdf.exportDocumento.useMutation({
     onSuccess: (data) => {
+      trackEvent('pdf_exported', { tipo });
       const blob = base64ToBlob(data.base64, data.mimeType);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

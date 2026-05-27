@@ -18,6 +18,8 @@ import {
   type DiarioOficialNorma,
 } from "../lib/diariooficial";
 import { createLogger } from "../lib/logger";
+import { sendEmail } from "../lib/email/send";
+import { alertaNormaLaboral } from "../lib/email/templates";
 
 const log = createLogger("jobs/sync-diario-oficial");
 
@@ -103,10 +105,12 @@ export async function syncDiarioOficialDaily(): Promise<DiarioOficialJobResult> 
 
   result.normasFetched = edicion.length;
 
-  // Load all users once for the fan-out step.
-  let allUsers: { id: number }[] = [];
+  // Load all users once for the fan-out step (includes email for notifications).
+  let allUsers: { id: number; email: string | null; name: string | null }[] = [];
   try {
-    allUsers = await db.select({ id: users.id }).from(users);
+    allUsers = await db
+      .select({ id: users.id, email: users.email, name: users.name })
+      .from(users);
   } catch (err) {
     log.error({ err }, "failed to load users");
     result.errores += 1;
@@ -189,6 +193,27 @@ export async function syncDiarioOficialDaily(): Promise<DiarioOficialJobResult> 
     } catch (err) {
       log.error({ err }, "batch alerta insert failed");
       result.errores += 1;
+    }
+
+    // Send email notifications to all users for each labor norma — swallow errors.
+    try {
+      const usersWithEmail = allUsers.filter((u) => u.email);
+      const emailTasks = laborNormasInserted.flatMap(({ norma }) =>
+        usersWithEmail.map((u) =>
+          sendEmail({
+            to: u.email!,
+            template: alertaNormaLaboral({
+              titulo: norma.titulo,
+              fechaPublicacion: norma.fechaPublicacion,
+              url: norma.url,
+              usuarioNombre: u.name ?? u.email!,
+            }),
+          }),
+        ),
+      );
+      await Promise.allSettled(emailTasks);
+    } catch (err) {
+      log.error({ err }, "email notifications for normas failed — skipping");
     }
   }
 

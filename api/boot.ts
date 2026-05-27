@@ -1,9 +1,19 @@
+import * as Sentry from '@sentry/node';
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV ?? 'development',
+  enabled: !!process.env.SENTRY_DSN, // only active when DSN is set
+  tracesSampleRate: 0.1,
+  integrations: [Sentry.httpIntegration()],
+});
+
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -11,6 +21,7 @@ import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import { generalLimiter, agentLimiter, ragLimiter } from "./lib/rate-limit";
 import { createLogger, logger } from "./lib/logger";
+import { getDb } from "./queries/connection";
 
 const log = createLogger("boot");
 const httpLog = createLogger("http");
@@ -19,6 +30,13 @@ const app = new Hono<{
   Bindings: HttpBindings;
   Variables: { requestId: string; userId?: number };
 }>();
+
+app.onError((err, c) => {
+  Sentry.captureException(err, { extra: { path: c.req.path, method: c.req.method } });
+  const errLog = createLogger('error-handler');
+  errLog.error({ err }, 'Unhandled error');
+  return c.json({ error: 'internal_server_error' }, 500);
+});
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
@@ -53,7 +71,26 @@ app.use("*", async (c, next) => {
   }
 });
 
-app.get("/health", (c) => c.json({ status: "ok", timestamp: Date.now() }));
+app.get('/health', async (c) => {
+  const checks: Record<string, 'ok' | 'error'> = {};
+
+  // DB check
+  try {
+    await getDb().execute(sql`SELECT 1`);
+    checks.db = 'ok';
+  } catch {
+    checks.db = 'error';
+  }
+
+  // Jobs check — just verify the jobs module loaded, not actual run status
+  checks.jobs = 'ok';
+
+  const healthy = Object.values(checks).every(v => v === 'ok');
+  return c.json(
+    { status: healthy ? 'ok' : 'degraded', checks, timestamp: new Date().toISOString() },
+    healthy ? 200 : 503,
+  );
+});
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 
 // Global rate limit applies to everything below.

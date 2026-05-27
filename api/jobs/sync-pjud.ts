@@ -5,7 +5,7 @@
 // scoped to the owning userId.
 
 import { getDb } from "../queries/connection";
-import { causas, cronologia, alertas } from "@db/schema";
+import { causas, cronologia, alertas, users } from "@db/schema";
 import { and, eq } from "drizzle-orm";
 import {
   obtenerMovimientos,
@@ -14,6 +14,8 @@ import {
   type PjudMovimiento,
 } from "../lib/pjud/index";
 import { createLogger } from "../lib/logger";
+import { sendEmail } from "../lib/email/send";
+import { alertaNuevosMovimientosPJUD } from "../lib/email/templates";
 
 const log = createLogger("jobs/sync-pjud");
 
@@ -163,6 +165,33 @@ export async function syncPjudActiveCausas(): Promise<PjudJobResult> {
       } catch (err) {
         log.error({ err, causaId: causa.id }, "insert failed for causa");
         result.errores += 1;
+      }
+    }
+
+    // Send email notification for new movements (swallow errors — non-critical).
+    if (nuevos.length > 0) {
+      try {
+        const userRows = await db
+          .select({ email: users.email, name: users.name })
+          .from(users)
+          .where(eq(users.id, causa.userId));
+        const user = userRows.at(0);
+        if (user?.email) {
+          await sendEmail({
+            to: user.email,
+            template: alertaNuevosMovimientosPJUD({
+              abogado: user.name ?? user.email,
+              causa: { rit: causa.rit, id: causa.id },
+              movimientos: nuevos.map((m) => ({
+                fecha: m.fecha,
+                tipo: m.tipo,
+                descripcion: m.descripcion,
+              })),
+            }),
+          });
+        }
+      } catch (err) {
+        log.error({ err, causaId: causa.id }, "email notification failed — skipping");
       }
     }
 

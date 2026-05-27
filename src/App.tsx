@@ -1,6 +1,10 @@
-import { Routes, Route } from "react-router";
+import { Routes, Route, useLocation } from "react-router";
+import { useEffect } from "react";
 import AppLayout from "./components/AppLayout";
 import AuthLayout from "./components/AuthLayout";
+import { initAnalytics, trackPageview } from "./lib/analytics";
+
+initAnalytics();
 import Home from "./pages/Home";
 import Causas from "./pages/Causas";
 import Alertas from "./pages/Alertas";
@@ -16,10 +20,17 @@ import DiarioOficial from "./pages/DiarioOficial";
 import ConsultaLegal from "./pages/ConsultaLegal";
 import CausaDetalle from "./pages/CausaDetalle";
 import PoderJudicial from "./pages/PoderJudicial";
+import Billing from "./pages/Billing";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
 export default function App() {
+  const location = useLocation();
+
+  useEffect(() => {
+    trackPageview(location.pathname);
+  }, [location.pathname]);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -44,6 +55,7 @@ export default function App() {
                 <Route path="/consulta-legal" element={<ConsultaLegal />} />
                 <Route path="/causas/:id" element={<CausaDetalle />} />
                 <Route path="/poder-judicial" element={<PoderJudicial />} />
+                <Route path="/billing" element={<Billing />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </AppLayout>

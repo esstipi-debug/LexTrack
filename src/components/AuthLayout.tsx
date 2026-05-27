@@ -1,8 +1,9 @@
 import { useAuth } from "@/hooks/useAuth";
 import { LOGIN_PATH } from "@/const";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
 import { Button } from "./ui/button";
+import { identifyUser } from "@/lib/analytics";
 
 export default function AuthLayout({
   children,
@@ -10,6 +11,12 @@ export default function AuthLayout({
   children: ReactNode;
 }) {
   const { isLoading, user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      identifyUser(user.id, { role: user.role });
+    }
+  }, [user]);
 
   if (isLoading) {
     return <AuthLayoutSkeleton />;
