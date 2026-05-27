@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Scale, Search, Gavel } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -9,9 +10,19 @@ import { useDebounce } from "@/hooks/use-debounce";
 export default function Jurisprudencia() {
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
-  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
-  const { data: allJurisData } = trpc.jurisprudencia.listar.useQuery({ limit: 20 });
-  const allJuris = allJurisData?.items ?? [];
+  const {
+    data: allJurisInfinite,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.jurisprudencia.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const allJuris = allJurisInfinite?.pages.flatMap((p) => p.items) ?? [];
   const { data: searchResults, isLoading } = trpc.jurisprudencia.buscar.useQuery(
     { query: debouncedQuery },
     { enabled: debouncedQuery.length > 2 }
@@ -84,6 +95,17 @@ export default function Jurisprudencia() {
           <p className="text-gray-400 text-center py-8">
             {debouncedQuery.length > 2 ? "No se encontraron resultados" : "No hay jurisprudencia registrada"}
           </p>
+        )}
+        {debouncedQuery.length <= 2 && hasNextPage && (
+          <div className="flex justify-center py-4">
+            <Button
+              variant="outline"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+            </Button>
+          </div>
         )}
       </div>
     </div>

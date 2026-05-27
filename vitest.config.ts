@@ -15,6 +15,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    environmentMatchGlobs: [
+      ["src/**/*.test.{ts,tsx}", "jsdom"],
+    ],
     include: [
       "api/**/*.test.ts",
       "api/**/*.spec.ts",

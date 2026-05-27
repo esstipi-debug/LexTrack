@@ -74,6 +74,20 @@ export async function authenticateRequest(headers: Headers) {
   return user;
 }
 
+function safeRedirectUrl(state: string, fallback: string): string {
+  try {
+    const decoded = atob(state);
+    const url = new URL(decoded);
+    // Only allow same-origin or relative redirects
+    const allowed = process.env.APP_URL ?? 'http://localhost:5173';
+    const allowedOrigin = new URL(allowed).origin;
+    if (url.origin === allowedOrigin || decoded.startsWith('/')) {
+      return decoded;
+    }
+  } catch {}
+  return fallback;
+}
+
 export function createOAuthCallbackHandler() {
   return async (c: Context) => {
     const code = c.req.query("code");
@@ -96,7 +110,7 @@ export function createOAuthCallbackHandler() {
     }
 
     try {
-      const redirectUri = atob(state);
+      const redirectUri = safeRedirectUrl(state, '/dashboard');
       const tokenResp = await exchangeAuthCode(code, redirectUri);
       const { userId } = await verifyAccessToken(tokenResp.access_token);
       const userProfile = await kimiUsers.getProfile(tokenResp.access_token);

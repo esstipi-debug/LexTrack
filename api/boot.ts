@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
@@ -20,6 +21,13 @@ const app = new Hono<{
 }>();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+
+app.use('*', cors({
+  origin: process.env.CORS_ORIGIN ?? '*',
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
 
 // Tiny Hono adapter: per-request structured access log + requestId propagation.
 app.use("*", async (c, next) => {

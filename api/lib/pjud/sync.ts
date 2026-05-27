@@ -237,9 +237,31 @@ export async function sincronizarTodas(userId: number): Promise<SyncResult[]> {
 
   const results: SyncResult[] = [];
 
-  for (const causa of causasMonitoreadas) {
-    const result = await sincronizarCausa(causa.id, userId);
-    results.push(result);
+  // Process in batches of 5 concurrent syncs to respect PJUD rate limits.
+  const BATCH = 5;
+  for (let i = 0; i < causasMonitoreadas.length; i += BATCH) {
+    const batch = causasMonitoreadas.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(
+      batch.map((c) => sincronizarCausa(c.id, userId))
+    );
+    for (const outcome of settled) {
+      if (outcome.status === "fulfilled") {
+        results.push(outcome.value);
+      } else {
+        // Capture rejected promises as failed SyncResult entries.
+        results.push({
+          causaId: 0,
+          rit: "",
+          synced: false,
+          error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+          cambios: { estadoCambio: null, nuevosMovimientos: 0, movimientos: [] },
+        });
+      }
+    }
+    // 1-second pause between batches to respect PJUD.
+    if (i + BATCH < causasMonitoreadas.length) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
   }
 
   return results;

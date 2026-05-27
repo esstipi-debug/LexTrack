@@ -95,14 +95,34 @@ export const causaRouter = createRouter({
     }),
 
   actualizar: authedQuery
-    .input(z.object({ id: z.number(), datos: z.record(z.any()) }))
+    .input(
+      z.object({
+        id: z.number(),
+        datos: z.object({
+          rit: z.string().optional(),
+          ruc: z.string().optional(),
+          rol: z.string().optional(),
+          caratula: z.string().optional(),
+          tribunal: z.string().optional(),
+          comuna: z.string().optional(),
+          region: z.string().optional(),
+          materia: z.string().optional(),
+          estado: z.string().optional(),
+          etapa: z.string().optional(),
+          fechaIngreso: z.string().optional(),
+          litigantes: z.string().optional(),
+          abogadoDemandante: z.string().optional(),
+          abogadoDemandado: z.string().optional(),
+          expedienteId: z.number().optional(),
+          estaMonitoreando: z.boolean().optional(),
+        }),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const datos = { ...input.datos };
-      delete (datos as any).userId;
       await db
         .update(causas)
-        .set(datos)
+        .set(input.datos)
         .where(and(eq(causas.id, input.id), eq(causas.userId, ctx.user.id)));
       return { ok: true };
     }),

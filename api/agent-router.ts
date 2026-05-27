@@ -420,8 +420,8 @@ async function ejecutarTool(name: string, input: Record<string, unknown>, userId
       };
       if (input.fechaVencimiento) values.fechaVencimiento = new Date(String(input.fechaVencimiento));
       if (input.causaId) values.causaId = Number(input.causaId);
-      const result = await db.insert(tareas).values(values as any);
-      return JSON.stringify({ ok: true, mensaje: `Tarea "${titulo}" creada exitosamente`, id: Number(result[0].insertId) });
+      const [row] = await db.insert(tareas).values(values as any).returning({ id: tareas.id });
+      return JSON.stringify({ ok: true, mensaje: `Tarea "${titulo}" creada exitosamente`, id: row.id });
     }
 
     case "listar_alertas": {

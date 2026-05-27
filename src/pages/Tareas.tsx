@@ -64,10 +64,20 @@ export default function Tareas() {
   const [fechaVencimiento, setFechaVencimiento] = useState("");
   const [causaId, setCausaId] = useState("");
 
-  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
-  const { data: tareasData, isLoading } = trpc.tarea.listar.useQuery({ limit: 20 });
-  const tareas = tareasData?.items ?? [];
-  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
+  const {
+    data: tareasInfinite,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.tarea.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const tareas = tareasInfinite?.pages.flatMap((p) => p.items) ?? [];
   const { data: causasResp } = trpc.causa.listar.useQuery({ limit: 100 });
   const causasData = causasResp?.items ?? [];
   const utils = trpc.useUtils();
@@ -353,6 +363,17 @@ export default function Tareas() {
           })}
           {tareasFiltradas.length === 0 && (
             <p className="text-gray-400 text-center py-8">No hay tareas</p>
+          )}
+          {hasNextPage && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+              </Button>
+            </div>
           )}
         </div>
       )}

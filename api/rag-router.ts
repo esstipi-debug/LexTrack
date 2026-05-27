@@ -6,7 +6,7 @@ const log = createLogger("rag-router");
 import { getDb } from "./queries/connection";
 import { getRagPool } from "./queries/rag-pg";
 import { documentosLegales, conversacionesRag, jurisprudencias } from "@db/schema";
-import { sql, and, eq, gt } from "drizzle-orm";
+import { sql, and, eq, gt, like } from "drizzle-orm";
 
 const paginationInput = z.object({
   limit: z.number().int().positive().max(100).optional(),
@@ -32,17 +32,31 @@ export const ragRouter = createRouter({
       const query = input.query;
       const limite = input.limite || 5;
 
+      const likePattern = `%${query}%`;
+
       const docs = await db
         .select()
         .from(documentosLegales)
-        .where(sql`${documentosLegales.estaActiva} = true`);
+        .where(
+          and(
+            sql`${documentosLegales.estaActiva} = true`,
+            like(documentosLegales.contenido, likePattern),
+          )
+        )
+        .limit(50);
 
       const scored = rankDocumentosLegales(query, docs, limite);
 
       const juris = await db
         .select()
         .from(jurisprudencias)
-        .where(sql`${jurisprudencias.estaActiva} = true`);
+        .where(
+          and(
+            sql`${jurisprudencias.estaActiva} = true`,
+            like(jurisprudencias.contenido, likePattern),
+          )
+        )
+        .limit(50);
 
       const scoredJuris = rankJurisprudencia(query, juris, 3);
 

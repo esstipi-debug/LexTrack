@@ -49,3 +49,34 @@ jobs:
 
       - name: Build
         run: npm run build
+        # NOTE: run npm run db:migrate before deploying to production
+
+  migration-check:
+    name: migration-check
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://user:pass@localhost:5432/lextrack
+      DATABASE_URL_POSTGRES: postgres://user:pass@localhost:5432/lextrack
+      RAG_DATABASE_URL: postgres://user:pass@localhost:5432/lextrack_rag
+      ANTHROPIC_API_KEY: dummy
+      ANTHROPIC_MODEL: claude-sonnet-4-20250514
+      VOYAGE_API_KEY: dummy
+      COHERE_API_KEY: dummy
+      OWNER_UNION_ID: dummy
+      NODE_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for uncommitted migrations
+        run: |
+          npm run db:generate 2>&1 | grep -q "No schema changes" || echo "::warning::Schema changes detected — run db:generate and commit migrations"

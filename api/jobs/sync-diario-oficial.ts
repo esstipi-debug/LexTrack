@@ -113,6 +113,9 @@ export async function syncDiarioOficialDaily(): Promise<DiarioOficialJobResult> 
     return result;
   }
 
+  // Collect labor normas that were newly inserted for batch alerta fan-out.
+  const laborNormasInserted: Array<{ norma: DiarioOficialNorma; normaId: number | undefined }> = [];
+
   for (const norma of edicion) {
     const tipoDb = mapTipo(norma.tipoNorma);
     const materiaDb = mapMateria(norma.materia);
@@ -163,26 +166,29 @@ export async function syncDiarioOficialDaily(): Promise<DiarioOficialJobResult> 
     // Fan-out alertas only for labor matters.
     if (!LABOR_REGEX.test(norma.materia)) continue;
 
-    for (const u of allUsers) {
-      try {
-        await db.insert(alertas).values({
-          userId: u.id,
-          tipo: "diario_oficial",
-          titulo: `Nueva norma laboral: ${norma.titulo}`,
-          descripcion: `${norma.tipoNorma} ${norma.numero} — ${norma.organismo}`,
-          prioridad: "baja",
-          estado: "pendiente",
-          fechaEvento: new Date(norma.fechaPublicacion),
-          metadata: {
-            normaId: inserted[0]?.id,
-            url: norma.url,
-          },
-        } as any);
-        result.alertasCreadas += 1;
-      } catch (err) {
-        log.error({ err, userId: u.id }, "alerta insert failed");
-        result.errores += 1;
-      }
+    laborNormasInserted.push({ norma, normaId: inserted[0]?.id });
+  }
+
+  // Batch-insert all alertas in a single query (avoids N×M individual inserts).
+  if (laborNormasInserted.length > 0) {
+    const alertRows = laborNormasInserted.flatMap(({ norma, normaId }) =>
+      allUsers.map((u) => ({
+        userId: u.id,
+        tipo: "diario_oficial" as const,
+        titulo: `Nueva norma laboral: ${norma.titulo}`,
+        descripcion: `${norma.tipoNorma} ${norma.numero} — ${norma.organismo}`,
+        prioridad: "baja" as const,
+        estado: "pendiente" as const,
+        fechaEvento: new Date(norma.fechaPublicacion),
+        metadata: { normaId, url: norma.url },
+      }))
+    );
+    try {
+      await db.insert(alertas).values(alertRows as any);
+      result.alertasCreadas += alertRows.length;
+    } catch (err) {
+      log.error({ err }, "batch alerta insert failed");
+      result.errores += 1;
     }
   }
 

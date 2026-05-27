@@ -11,6 +11,7 @@ import {
   jsonb,
   date,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ───────────────────────────────────────────────────────
@@ -334,7 +335,7 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   unionId: varchar("unionId", { length: 255 }).notNull().unique(),
   name: varchar("name", { length: 255 }),
-  email: varchar("email", { length: 320 }),
+  email: varchar("email", { length: 320 }).unique(),
   avatar: text("avatar"),
   role: userRoleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -406,7 +407,7 @@ export const causas = pgTable(
     litigantes: text("litigantes"),
     abogadoDemandante: varchar("abogadoDemandante", { length: 255 }),
     abogadoDemandado: varchar("abogadoDemandado", { length: 255 }),
-    expedienteId: bigint("expedienteId", { mode: "number" }),
+    expedienteId: bigint("expedienteId", { mode: "number" }).references(() => expedientes.id, { onDelete: "set null" }),
     estaMonitoreando: boolean("estaMonitoreando").default(true).notNull(),
     fuente: varchar("fuente", { length: 50 })
       .default("consulta_unificada")
@@ -617,7 +618,7 @@ export const checklistItems = pgTable(
   "checklist_items",
   {
     id: serial("id").primaryKey(),
-    templateId: bigint("templateId", { mode: "number" }).notNull(),
+    templateId: bigint("templateId", { mode: "number" }).notNull().references(() => checklistTemplates.id, { onDelete: "cascade" }),
     orden: integer("orden").notNull(),
     titulo: varchar("titulo", { length: 255 }).notNull(),
     descripcion: text("descripcion"),
@@ -642,7 +643,7 @@ export const checklistEjecuciones = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    templateId: bigint("templateId", { mode: "number" }).notNull(),
+    templateId: bigint("templateId", { mode: "number" }).notNull().references(() => checklistTemplates.id),
     causaId: bigint("causaId", { mode: "number" }),
     expedienteId: bigint("expedienteId", { mode: "number" }),
     titulo: varchar("titulo", { length: 255 }).notNull(),
@@ -670,8 +671,8 @@ export const checklistCompletados = pgTable(
     userId: bigint("userId", { mode: "number" })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    ejecucionId: bigint("ejecucionId", { mode: "number" }).notNull(),
-    itemId: bigint("itemId", { mode: "number" }).notNull(),
+    ejecucionId: bigint("ejecucionId", { mode: "number" }).notNull().references(() => checklistEjecuciones.id, { onDelete: "cascade" }),
+    itemId: bigint("itemId", { mode: "number" }).notNull().references(() => checklistItems.id, { onDelete: "cascade" }),
     completado: boolean("completado").default(false).notNull(),
     notas: text("notas"),
     completadoPor: varchar("completadoPor", { length: 255 }),
@@ -1002,6 +1003,7 @@ export const diarioOficialNormas = pgTable(
     fechaIdx: index("do_fecha_idx").on(table.fechaPublicacion),
     materiaIdx: index("do_materia_idx").on(table.materia),
     tipoIdx: index("do_tipo_idx").on(table.tipo),
+    uniqueNumeroTipo: unique("diario_oficial_numero_tipo_idx").on(table.numeroNorma, table.tipo),
   })
 );
 

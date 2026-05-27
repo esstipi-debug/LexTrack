@@ -39,9 +39,20 @@ import {
 } from "lucide-react";
 
 export default function Honorarios() {
-  // TODO: upgrade to useInfiniteQuery with "Cargar más" pagination.
-  const { data: honorariosData, isLoading } = trpc.honorario.listar.useQuery({ limit: 20 });
-  const honorarios = honorariosData?.items ?? [];
+  const {
+    data: honorariosInfinite,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.honorario.listar.useInfiniteQuery(
+    { limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      initialCursor: undefined,
+    }
+  );
+  const honorarios = honorariosInfinite?.pages.flatMap((p) => p.items) ?? [];
   const { data: stats } = trpc.honorario.estadisticas.useQuery();
   const { data: agingData } = trpc.honorario.aging.useQuery();
   const { data: resumenMensual } = trpc.honorario.resumenMensual.useQuery();
@@ -485,6 +496,17 @@ export default function Honorarios() {
                 <p className="text-gray-400 text-center py-8">
                   No hay honorarios registrados
                 </p>
+              )}
+              {hasNextPage && (
+                <div className="flex justify-center py-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? "Cargando..." : "Cargar más"}
+                  </Button>
+                </div>
               )}
             </div>
           )}

@@ -132,7 +132,7 @@ type DbState = {
 const __dbState: DbState = {
   rows: {},
   lastInsert: null,
-  insertResult: [{ insertId: 42 }],
+  insertResult: [{ id: 42 }],
   capturedConditions: [],
 };
 
@@ -181,9 +181,13 @@ vi.mock("./queries/connection", () => ({
       from: (t: any) => makeBuilder(tableKeyFromSchemaRef(t)),
     }),
     insert: (t: any) => ({
-      values: async (v: any) => {
+      values: (v: any) => {
         __dbState.lastInsert = { table: tableKeyFromSchemaRef(t), values: v };
-        return __dbState.insertResult;
+        return {
+          returning: async (_shape?: any) => __dbState.insertResult,
+          then: (resolve: any, reject: any) =>
+            Promise.resolve(__dbState.insertResult).then(resolve, reject),
+        };
       },
     }),
   }),
@@ -204,7 +208,7 @@ function resetState() {
   __anthropicState.loopForever = null;
   __dbState.rows = {};
   __dbState.lastInsert = null;
-  __dbState.insertResult = [{ insertId: 42 }];
+  __dbState.insertResult = [{ id: 42 }];
   __dbState.capturedConditions = [];
 }
 

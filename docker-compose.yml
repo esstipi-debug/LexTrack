@@ -1,7 +1,23 @@
 # Postgres 16 + pgvector — stack objetivo para RAG híbrido (BM25 + embeddings).
 # Uso: docker compose up -d
 # DATABASE_URL (Postgres): postgresql://lextrack:${POSTGRES_PASSWORD}@localhost:5432/lextrack
+# ⚠️  Change POSTGRES_PASSWORD before deploying to staging or production!
 services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://lextrack:lextrack@postgres:5432/lextrack
+      - PORT=3000
+    env_file:
+      - .env.local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:pg16
     container_name: lextrack-postgres
