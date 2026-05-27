@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import {
   Card,
@@ -11,7 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react";
 import type { Plan } from "../../api/lib/billing/types";
 
 type Provider = "mercadopago" | "stripe";
@@ -26,8 +26,101 @@ function formatCLP(amount: number): string {
   return `$${CLP_FORMAT.format(amount)}/mes`;
 }
 
+const TRIAL_TOTAL_DAYS = 14;
+
+function TrialStatusCard({
+  status,
+  trialEndsAt,
+  onScrollToPlans,
+}: {
+  status: string | undefined;
+  trialEndsAt: Date | string | null | undefined;
+  onScrollToPlans: () => void;
+}) {
+  if (status !== "trialing") return null;
+
+  const trialEnd = trialEndsAt ? new Date(trialEndsAt) : null;
+  if (!trialEnd) return null;
+
+  const now = Date.now();
+  const daysLeft = Math.ceil((trialEnd.getTime() - now) / 86400000);
+  const expired = daysLeft <= 0;
+
+  const trialStart = new Date(trialEnd.getTime() - TRIAL_TOTAL_DAYS * 86400000);
+  const elapsed = Math.max(0, Math.ceil((now - trialStart.getTime()) / 86400000));
+  const progress = Math.min(100, Math.round((elapsed / TRIAL_TOTAL_DAYS) * 100));
+
+  const formattedEnd = trialEnd.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  if (expired) {
+    return (
+      <div className="mb-8 rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-800 dark:bg-red-950/40">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h2 className="font-semibold text-red-800 dark:text-red-300 text-base mb-1">
+              Tu prueba expiró
+            </h2>
+            <p className="text-sm text-red-700 dark:text-red-400 mb-3">
+              Tu período de prueba gratuita terminó el {formattedEnd}. Para seguir usando todas las funciones, activa un plan.
+            </p>
+            <Button
+              size="sm"
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={onScrollToPlans}
+            >
+              Activar plan ahora
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-800 dark:bg-amber-950/40">
+      <div className="flex items-start gap-3">
+        <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <h2 className="font-semibold text-amber-800 dark:text-amber-300 text-base mb-1">
+            Estás en tu período de prueba gratuita
+          </h2>
+          <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
+            Vence el <strong>{formattedEnd}</strong> — quedan{" "}
+            <strong>{daysLeft === 1 ? "1 día" : `${daysLeft} días`}</strong>.
+          </p>
+          <div className="mb-4">
+            <div className="flex justify-between text-xs text-amber-700 dark:text-amber-400 mb-1">
+              <span>Día {Math.min(elapsed, TRIAL_TOTAL_DAYS)} de {TRIAL_TOTAL_DAYS}</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-amber-200 dark:bg-amber-900">
+              <div
+                className="h-2 rounded-full bg-amber-500 dark:bg-amber-400 transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+            onClick={onScrollToPlans}
+          >
+            Activar plan ahora
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Billing() {
   const [provider, setProvider] = useState<Provider>("mercadopago");
+  const plansRef = useRef<HTMLDivElement>(null);
 
   const { data: plans } = trpc.billing.plans.useQuery();
   const { data: currentPlanData, isLoading: loadingPlan } =
@@ -43,6 +136,11 @@ export default function Billing() {
   });
 
   const currentPlan: Plan = currentPlanData?.plan ?? "free";
+  const subscription = currentPlanData?.subscription;
+
+  const scrollToPlans = () => {
+    plansRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   if (!plans) return null;
 
@@ -62,6 +160,12 @@ export default function Billing() {
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
+
+      <TrialStatusCard
+        status={subscription?.status}
+        trialEndsAt={subscription?.trialEndsAt}
+        onScrollToPlans={scrollToPlans}
+      />
 
       {/* Provider selector */}
       <div className="flex justify-center mb-8">
@@ -91,7 +195,7 @@ export default function Billing() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div ref={plansRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {planKeys.map((key) => {
           const plan = plans[key];
           const isCurrentPlan = currentPlan === key;
