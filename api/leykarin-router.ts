@@ -5,6 +5,8 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { leykarinDenuncias, leykarinActuaciones, leykarinMedidas } from "@db/schema";
 import { eq, desc, and, sql, lt } from "drizzle-orm";
+import { auditFromCtx } from "./lib/audit";
+import { getUserOrgIds, getPrimaryOrgId, visibleToUserCondition } from "./lib/org-scope";
 
 const paginationInput = z.object({
   limit: z.number().int().positive().max(100).optional(),
@@ -121,12 +123,19 @@ export const leykarinRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input?.limit ?? 20, 100);
       const cursor = input?.cursor ?? null;
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(leykarinDenuncias)
         .where(
           and(
-            eq(leykarinDenuncias.userId, ctx.user.id),
+            visibility,
             cursor ? lt(leykarinDenuncias.id, cursor) : undefined
           )
         )
@@ -142,15 +151,23 @@ export const leykarinRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const denunciaVis = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      const actuacionVis = visibleToUserCondition(
+        leykarinActuaciones.userId,
+        leykarinActuaciones.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.id),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.id), denunciaVis));
       if (!denuncia) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -163,7 +180,7 @@ export const leykarinRouter = createRouter({
         .where(
           and(
             eq(leykarinActuaciones.denunciaId, input.id),
-            eq(leykarinActuaciones.userId, ctx.user.id)
+            actuacionVis
           )
         )
         .orderBy(desc(leykarinActuaciones.fecha));
@@ -183,8 +200,10 @@ export const leykarinRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgId = await getPrimaryOrgId(ctx.user.id);
       const values: Record<string, unknown> = {
         userId: ctx.user.id,
+        orgId, // auto-share within firm — sensitive Karin data lives at the firm level
         codigo: input.codigo,
         fechaRecepcion: new Date(input.fechaRecepcion),
         tipo: input.tipo as "acoso_laboral" | "acoso_sexual" | "violencia_laboral" | "discriminacion" | "otro",
@@ -195,6 +214,12 @@ export const leykarinRouter = createRouter({
         prioridad: input.prioridad as "baja" | "media" | "alta" | "critica",
       };
       await db.insert(leykarinDenuncias).values(values as any);
+      // audit (sensitive data — record karin event but redact bodies in after)
+      await auditFromCtx(ctx, {
+        action: "karin.create",
+        tableName: "leykarin_denuncias",
+        after: { codigo: input.codigo, tipo: input.tipo, denunciado: input.denunciado },
+      });
       return { ok: true };
     }),
 
@@ -204,16 +229,19 @@ export const leykarinRouter = createRouter({
       const db = getDb();
       const nuevoEstado: EstadoDenuncia = input.estado;
 
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+
       // Fetch current denuncia to validate transition
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.id),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.id), visibility));
 
       if (!denuncia) {
         throw new TRPCError({
@@ -228,12 +256,16 @@ export const leykarinRouter = createRouter({
       await db
         .update(leykarinDenuncias)
         .set({ estado: nuevoEstado })
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.id),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.id), visibility));
+
+      // audit
+      await auditFromCtx(ctx, {
+        action: "karin.update",
+        tableName: "leykarin_denuncias",
+        recordId: input.id,
+        before: { estado: estadoActual },
+        after: { estado: nuevoEstado },
+      });
 
       return { ok: true, de: estadoActual, a: nuevoEstado };
     }),
@@ -248,21 +280,24 @@ export const leykarinRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      // Verify denuncia belongs to user
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const denunciaVis = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      // Verify denuncia is visible to caller (own or same firm)
       const [d] = await db
-        .select({ id: leykarinDenuncias.id })
+        .select({ id: leykarinDenuncias.id, orgId: leykarinDenuncias.orgId })
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.denunciaId),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.denunciaId), denunciaVis));
       if (!d) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
       }
       await db.insert(leykarinActuaciones).values({
         userId: ctx.user.id,
+        orgId: d.orgId ?? null, // inherit orgId from parent denuncia
         denunciaId: input.denunciaId,
         fecha: new Date(input.fecha),
         tipo: input.tipo as any,
@@ -274,10 +309,17 @@ export const leykarinRouter = createRouter({
 
   dashboard: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const orgIds = await getUserOrgIds(ctx.user.id);
+    const visibility = visibleToUserCondition(
+      leykarinDenuncias.userId,
+      leykarinDenuncias.orgId,
+      ctx.user.id,
+      orgIds,
+    );
     const todas = await db
       .select()
       .from(leykarinDenuncias)
-      .where(eq(leykarinDenuncias.userId, ctx.user.id));
+      .where(visibility);
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
@@ -323,15 +365,17 @@ export const leykarinRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.id),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.id), visibility));
 
       if (!denuncia) {
         throw new TRPCError({
@@ -386,15 +430,17 @@ export const leykarinRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.denunciaId),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.denunciaId), visibility));
 
       if (!denuncia) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
@@ -441,15 +487,23 @@ export const leykarinRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const denunciaVis = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      const actuacionVis = visibleToUserCondition(
+        leykarinActuaciones.userId,
+        leykarinActuaciones.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.denunciaId),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.denunciaId), denunciaVis));
 
       if (!denuncia) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
@@ -461,7 +515,7 @@ export const leykarinRouter = createRouter({
         .where(
           and(
             eq(leykarinActuaciones.denunciaId, input.denunciaId),
-            eq(leykarinActuaciones.userId, ctx.user.id)
+            actuacionVis
           )
         )
         .orderBy(leykarinActuaciones.fecha);
@@ -520,15 +574,17 @@ export const leykarinRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const [denuncia] = await db
         .select()
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.denunciaId),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.denunciaId), visibility));
 
       if (!denuncia) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
@@ -566,21 +622,24 @@ export const leykarinRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      // Verify denuncia ownership
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const denunciaVis = visibleToUserCondition(
+        leykarinDenuncias.userId,
+        leykarinDenuncias.orgId,
+        ctx.user.id,
+        orgIds,
+      );
+      // Verify denuncia ownership / firm-visibility
       const [d] = await db
-        .select({ id: leykarinDenuncias.id })
+        .select({ id: leykarinDenuncias.id, orgId: leykarinDenuncias.orgId })
         .from(leykarinDenuncias)
-        .where(
-          and(
-            eq(leykarinDenuncias.id, input.denunciaId),
-            eq(leykarinDenuncias.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinDenuncias.id, input.denunciaId), denunciaVis));
       if (!d) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Denuncia no encontrada" });
       }
       await db.insert(leykarinMedidas).values({
         userId: ctx.user.id,
+        orgId: d.orgId ?? null, // inherit from parent denuncia
         denunciaId: input.denunciaId,
         tipo: input.tipo,
         descripcion: input.descripcion,
@@ -603,13 +662,20 @@ export const leykarinRouter = createRouter({
       const db = getDb();
       const limit = Math.min(input.limit ?? 20, 100);
       const cursor = input.cursor ?? null;
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinMedidas.userId,
+        leykarinMedidas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       const rows = await db
         .select()
         .from(leykarinMedidas)
         .where(
           and(
             eq(leykarinMedidas.denunciaId, input.denunciaId),
-            eq(leykarinMedidas.userId, ctx.user.id),
+            visibility,
             cursor ? lt(leykarinMedidas.id, cursor) : undefined
           )
         )
@@ -629,15 +695,17 @@ export const leykarinRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const fechaFin = input.fechaFin ? new Date(input.fechaFin) : new Date();
+      const orgIds = await getUserOrgIds(ctx.user.id);
+      const visibility = visibleToUserCondition(
+        leykarinMedidas.userId,
+        leykarinMedidas.orgId,
+        ctx.user.id,
+        orgIds,
+      );
       await db
         .update(leykarinMedidas)
         .set({ estado: "finalizada" as any, fechaFin })
-        .where(
-          and(
-            eq(leykarinMedidas.id, input.id),
-            eq(leykarinMedidas.userId, ctx.user.id)
-          )
-        );
+        .where(and(eq(leykarinMedidas.id, input.id), visibility));
       return { ok: true };
     }),
 
@@ -645,12 +713,19 @@ export const leykarinRouter = createRouter({
 
   alertasAutomaticas: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const orgIds = await getUserOrgIds(ctx.user.id);
+    const visibility = visibleToUserCondition(
+      leykarinDenuncias.userId,
+      leykarinDenuncias.orgId,
+      ctx.user.id,
+      orgIds,
+    );
     const denuncias = await db
       .select()
       .from(leykarinDenuncias)
       .where(
         and(
-          eq(leykarinDenuncias.userId, ctx.user.id),
+          visibility,
           sql`${leykarinDenuncias.estado} IN ('recepcionada', 'evaluacion', 'investigacion')`
         )
       );
@@ -752,10 +827,17 @@ export const leykarinRouter = createRouter({
 
   estadisticas: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const orgIds = await getUserOrgIds(ctx.user.id);
+    const visibility = visibleToUserCondition(
+      leykarinDenuncias.userId,
+      leykarinDenuncias.orgId,
+      ctx.user.id,
+      orgIds,
+    );
     const todas = await db
       .select()
       .from(leykarinDenuncias)
-      .where(eq(leykarinDenuncias.userId, ctx.user.id));
+      .where(visibility);
     const porEstado = todas.reduce((acc, d) => {
       acc[d.estado] = (acc[d.estado] || 0) + 1;
       return acc;
