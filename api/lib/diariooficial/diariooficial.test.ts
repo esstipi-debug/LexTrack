@@ -52,7 +52,12 @@ describe("diariooficial/facade env routing", () => {
     process.env.DIARIO_OFICIAL_SCRAPER = "playwright";
     vi.resetModules();
     vi.doMock("playwright", () => ({
-      chromium: { launch: vi.fn(async () => ({ newContext: vi.fn(), close: vi.fn() })) },
+      chromium: {
+        launch: vi.fn(async () => ({
+          newPage: vi.fn(),
+          close: vi.fn(async () => {}),
+        })),
+      },
     }));
     const facade = await import("./index");
     facade._resetDiarioOficialScraper();
@@ -101,16 +106,17 @@ function makePage() {
   };
 }
 
-const browser = {
-  newContext: vi.fn(async () => ({
+// Browsers are now scoped per `withBrowser` call. Each `chromium.launch()`
+// returns a fresh browser exposing `newPage` directly (no separate context).
+function makeBrowser() {
+  return {
     newPage: vi.fn(async () => makePage()),
     close: vi.fn(async () => {}),
-  })),
-  close: vi.fn(async () => {}),
-};
+  };
+}
 
 vi.mock("playwright", () => ({
-  chromium: { launch: vi.fn(async () => browser) },
+  chromium: { launch: vi.fn(async () => makeBrowser()) },
 }));
 
 describe("diariooficial/playwright-scraper", () => {
@@ -118,6 +124,15 @@ describe("diariooficial/playwright-scraper", () => {
     state.selectorText = {};
     state.rowCounts = {};
     state.gotoUrls = [];
+    // The previous describe block (`facade env routing`) uses
+    // `vi.doMock("playwright", ...)` and then `vi.resetModules()`,
+    // which can leave the doMock registered for this block too.
+    // Re-register our state-driven mock so this test actually drives
+    // the in-memory page rather than an unrelated stub.
+    vi.resetModules();
+    vi.doMock("playwright", () => ({
+      chromium: { launch: vi.fn(async () => makeBrowser()) },
+    }));
   });
 
   it("navigates to DIARIO_OFICIAL_BASE_URL when buscarNormas is called", async () => {

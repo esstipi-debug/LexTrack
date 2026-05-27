@@ -71,21 +71,19 @@ function makePage() {
   };
 }
 
-function makeContext() {
+// Browsers are now scoped per `withBrowser` call (one per scrape attempt).
+// The mock returns a fresh browser per `chromium.launch()` invocation,
+// each exposing `newPage` directly (the helper bypasses contexts).
+function makeBrowser() {
   return {
     newPage: vi.fn(async () => makePage()),
     close: vi.fn(async () => {}),
   };
 }
 
-const browser = {
-  newContext: vi.fn(async () => makeContext()),
-  close: vi.fn(async () => {}),
-};
-
 vi.mock("playwright", () => ({
   chromium: {
-    launch: vi.fn(async () => browser),
+    launch: vi.fn(async () => makeBrowser()),
   },
 }));
 
@@ -106,7 +104,6 @@ beforeEach(() => {
   state.rowText = {};
   state.gotoUrls = [];
   state.transientFailures = 0;
-  browser.newContext.mockClear();
 });
 
 afterEach(async () => {
