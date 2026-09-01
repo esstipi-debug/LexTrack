@@ -1,47 +1,47 @@
 # LexTrack
 
-> Asistente IA para abogados laboralistas chilenos.
-> No es ChatGPT legal. Es el sistema operativo del estudio laboral.
+> AI assistant for Chilean employment lawyers.
+> Not legal ChatGPT. The operating system for the employment law practice.
 
-**Estado:** en desarrollo activo. RAG base con 195 artículos del Código del Trabajo + leyes especiales + jurisprudencia ya seedeados. Migrando a arquitectura RAG híbrida (BM25 + embeddings + reranker + LLM con verificación de citas).
+**Status:** under active development. Base RAG with 195 articles of the Código del Trabajo (Chile's Labor Code) + special statutes + case law already seeded. Migrating to a hybrid RAG architecture (BM25 + embeddings + reranker + LLM with citation verification).
 
-## Qué hace
+## What it does
 
-Cuatro herramientas, sin chat libre:
+Four tools, no free-form chat:
 
-1. **Preguntar** — RAG con citas verificadas sobre Código del Trabajo, leyes especiales, jurisprudencia y dictámenes de la Dirección del Trabajo.
-2. **Calcular** — Indemnización, finiquito, horas extra, feriado proporcional, gratificación. Matemática local, gratis e ilimitado.
-3. **Escribir** — Generadores estructurados: carta de despido, demanda, finiquito, contestación.
-4. **Avisar** — Email diario con cambios del Diario Oficial filtrados por materia laboral.
+1. **Ask** — RAG with verified citations over the Código del Trabajo, special statutes, case law, and legal opinions from the Dirección del Trabajo (Chile's labor authority).
+2. **Calculate** — Severance, finiquito (termination settlement), overtime, pro-rated annual leave, gratificación (annual bonus). Local math, free and unlimited.
+3. **Write** — Structured generators: termination letter, complaint, finiquito, answer.
+4. **Notify** — Daily email with changes from the Diario Oficial (Chile's official gazette) filtered by employment-law subject matter.
 
-**Feature punta de lanza:** wizard de Ley Karin (Ley 21.643).
+**Spearhead feature:** Ley Karin wizard (Ley 21.643).
 
 ## Pricing
 
-| Plan | Precio/mes | Para quién |
+| Plan | Price/month | For whom |
 |---|---|---|
-| **Solo** | CLP 59.000 | Abogado independiente |
-| **Estudio** | CLP 189.000 | 3-5 abogados |
-| **Firma** | CLP 449.000 | 6-15 abogados |
+| **Solo** | CLP 59,000 | Independent lawyer |
+| **Estudio** | CLP 189,000 | 3-5 lawyers |
+| **Firma** | CLP 449,000 | 6-15 lawyers |
 
-Anclaje: *"59 lucas al mes. 7 horas más a la semana. El asistente que tu estudio no tiene."*
+Anchor: *"59K a month. 7 more hours a week. The assistant your practice doesn't have."*
 
-## Documentación
+## Documentation
 
-- 📋 [Estrategia de producto](docs/STRATEGY.md) — quién es el cliente, qué hace, qué no hace, pricing, moat.
-- 🏛 [Arquitectura técnica](docs/ARCHITECTURE.md) — RAG híbrido, scraping centralizado, stack, costos.
-- 🗺 [Roadmap MVP 6 semanas](docs/ROADMAP.md) — plan ejecutable.
-- 🐘 [RAG Postgres / Neon](docs/RAG_SETUP.md) — variables `.env`, SQL inicial, ingesta y verificación.
-- 🟢 [RAG AlloyDB (GCP)](docs/RAG_ALLOYDB.md) — Postgres gestionado en GCP (guía genérica).
+- 📋 [Product strategy](docs/STRATEGY.md) — who the customer is, what it does, what it doesn't do, pricing, moat.
+- 🏛 [Technical architecture](docs/ARCHITECTURE.md) — hybrid RAG, centralized scraping, stack, costs.
+- 🗺 [6-week MVP roadmap](docs/ROADMAP.md) — executable plan.
+- 🐘 [RAG Postgres / Neon](docs/RAG_SETUP.md) — `.env` variables, initial SQL, ingestion and verification.
+- 🟢 [RAG AlloyDB (GCP)](docs/RAG_ALLOYDB.md) — managed Postgres on GCP (generic guide).
 
 ## Stack
 
 - **Frontend:** React 19 + Vite + Tailwind + shadcn/ui
 - **Backend:** Hono + tRPC + Drizzle
-- **DB:** Postgres 16 + pgvector (migrando desde MySQL)
-- **IA:** Anthropic Claude Sonnet 4.6 + Voyage `voyage-law-2` + Cohere rerank
+- **DB:** Postgres 16 + pgvector (migrating from MySQL)
+- **AI:** Anthropic Claude Sonnet 4.6 + Voyage `voyage-law-2` + Cohere rerank
 - **Infra:** S3, Stripe + dLocal, Resend, PostHog
 
 ## Disclaimer
 
-LexTrack es un **asistente**, no reemplaza el criterio profesional del abogado. Cada respuesta lleva sus fuentes citadas (artículo, rol, tribunal, fecha) para que el usuario verifique.
+LexTrack is an **assistant**; it does not replace the lawyer's professional judgment. Every answer carries its cited sources (article, rol — case docket number —, court, date) so the user can verify.
